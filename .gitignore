@@ -1,0 +1,27 @@
+# Ortam
+.env
+.env.*
+!.env.example
+
+# Bağımlılıklar
+node_modules/
+
+# Derleme / log
+dist/
+build/
+*.log
+npm-debug.log*
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Prisma
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# TypeScript
+*.tsbuildinfo

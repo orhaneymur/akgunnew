@@ -1,0 +1,9 @@
+-- AlterTable
+ALTER TABLE `customer` ADD COLUMN `address` TEXT NULL,
+    ADD COLUMN `city` VARCHAR(191) NULL,
+    ADD COLUMN `contactPerson` VARCHAR(191) NULL,
+    ADD COLUMN `district` VARCHAR(191) NULL,
+    ADD COLUMN `email` VARCHAR(191) NULL,
+    ADD COLUMN `phone` VARCHAR(191) NULL,
+    ADD COLUMN `taxNumber` VARCHAR(191) NULL,
+    ADD COLUMN `taxOffice` VARCHAR(191) NULL;

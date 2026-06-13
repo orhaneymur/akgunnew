@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: akgunteknik-backend
+  labels:
+    app: akgunteknik-backend
+    tier: backend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: akgunteknik-backend
+  template:
+    metadata:
+      labels:
+        app: akgunteknik-backend
+        tier: backend
+    spec:
+      containers:
+        - name: backend
+          image: akgunteknik-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: akgunteknik-secrets
+                  key: DATABASE_URL
+          readinessProbe:
+            httpGet:
+              path: /api/sales/dashboard
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/sales/dashboard
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 50m
+            limits:
+              memory: 256Mi
+              cpu: 500m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: akgunteknik-backend
+  labels:
+    app: akgunteknik-backend
+spec:
+  type: ClusterIP
+  selector:
+    app: akgunteknik-backend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000

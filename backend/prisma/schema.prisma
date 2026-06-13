@@ -1,0 +1,175 @@
+datasource db {
+  provider = "mysql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  name      String
+  email     String    @unique
+  password  String
+  role      String    @default("staff") // admin, staff
+  invoices  Invoice[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Branch {
+  id        Int               @id @default(autoincrement())
+  name      String // e.g., Merkez Depo, Kadıköy Şube
+  type      BranchType        @default(STORE)
+  stocks    ProductStock[]
+  safes     Safe[]
+  invoices  Invoice[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+}
+
+enum BranchType {
+  STORE
+  WAREHOUSE
+}
+
+model Category {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  brandModels BrandModel[]
+  products    Product[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model BrandModel {
+  id         Int       @id @default(autoincrement())
+  name       String
+  categoryId Int?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  products   Product[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([name, categoryId])
+}
+
+model Product {
+  id           Int               @id @default(autoincrement())
+  sku          String            @unique // Stock Code
+  barcode      String?           @unique
+  name         String
+  costPrice    Float             @default(0.0) // Alış maliyeti
+  priceTl      Float             @default(0.0)
+  priceUsd     Float             @default(0.0)
+  categoryId   Int?
+  brandModelId Int?
+  category     Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brandModel   BrandModel?       @relation(fields: [brandModelId], references: [id], onDelete: SetNull)
+  stocks       ProductStock[]
+  invoiceItems InvoiceItem[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model ProductStock {
+  id        Int      @id @default(autoincrement())
+  productId Int
+  branchId  Int
+  quantity  Float    @default(0.0)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, branchId])
+}
+
+model Customer {
+  id            Int           @id @default(autoincrement())
+  code          String        @unique // Customer Code (e.g., 247)
+  name          String
+  contactPerson String? // Yetkili adı soyadı
+  address       String?       @db.Text
+  district      String? // İlçe
+  city          String? // İl
+  email         String?
+  phone         String? // GSM
+  taxOffice     String? // Vergi dairesi
+  taxNumber     String? // Vergi / TC no
+  creditLimit   Float         @default(0.0)
+  balance       Float         @default(0.0) // Debt/Credit tracking
+  invoices      Invoice[]
+  transactions  Transaction[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Safe {
+  id           Int           @id @default(autoincrement())
+  branchId     Int
+  name         String // e.g., Dolar Kasası, Merkez Kasa
+  currency     String        @default("TRY") // TRY, USD, EUR
+  balance      Float         @default(0.0)
+  branch       Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  invoices     Invoice[]
+  transactions Transaction[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Invoice {
+  id              Int           @id @default(autoincrement())
+  invoiceNo       String        @unique // e.g., SF0001
+  type            String        @default("SATIS") // SATIS, ALIS, IADE
+  customerId      Int
+  safeId          Int
+  branchId        Int
+  userId          Int?
+  paymentMethod   String        @default("Nakit") // Nakit, EFT/Havale, Kart, Cari
+  paymentType     String? // Peşin, Vadeli vb.
+  exchangeRate    Float         @default(1.0)
+  deliveryType    String        @default("Mağazadan Teslim") // Kargo, Mağazadan Teslim
+  dueDate         DateTime?
+  isPreOrder      Boolean       @default(false)
+  processedBy     String?
+  orderNotes      String?       @db.Text
+  shippingCompany String?
+  trackingNumber  String?
+  totalAmountTl   Float         @default(0.0)
+  totalAmountUsd  Float         @default(0.0)
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  safe            Safe          @relation(fields: [safeId], references: [id])
+  branch          Branch        @relation(fields: [branchId], references: [id])
+  user            User?         @relation(fields: [userId], references: [id])
+  items           InvoiceItem[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+enum TransactionType {
+  GIRIS
+  CIKIS
+}
+
+model Transaction {
+  id          Int             @id @default(autoincrement())
+  safeId      Int
+  customerId  Int?
+  type        TransactionType
+  amount      Float
+  description String
+  safe        Safe            @relation(fields: [safeId], references: [id])
+  customer    Customer?       @relation(fields: [customerId], references: [id])
+  createdAt   DateTime        @default(now())
+}
+
+model InvoiceItem {
+  id              Int      @id @default(autoincrement())
+  invoiceId       Int
+  productId       Int
+  quantity        Float
+  unitPrice       Float // Satış anı birim fiyat (USD)
+  discountPercent Float    @default(0)
+  totalPrice      Float
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product         Product  @relation(fields: [productId], references: [id])
+}

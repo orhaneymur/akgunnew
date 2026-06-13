@@ -1,0 +1,171 @@
+const envBase = import.meta.env.VITE_API_BASE as string | undefined;
+export const API_BASE =
+  envBase !== undefined ? envBase : 'http://localhost:3000';
+export const EXCHANGE_RATE = 46.39;
+export const EUR_RATE = 53.628;
+export const AUTH_STORAGE_KEY = 'isLoggedIn';
+export const AUTH_TOKEN_KEY = 'authToken';
+export const LIST_PAGE_SIZE = 50;
+
+export type PaginatedListResponse<T> = {
+  success: boolean;
+  data: T[];
+  totalCount: number;
+  limit: number;
+  page: number;
+  message: string;
+};
+
+/** @deprecated Eski meta yapısı — PaginatedListResponse kullanın */
+export type PaginatedResponse<T> = PaginatedListResponse<T>;
+
+export function getTotalPages(totalCount: number, limit: number): number {
+  if (totalCount <= 0 || limit <= 0) return 0;
+  return Math.ceil(totalCount / limit);
+}
+
+export function buildVisiblePages(
+  currentPage: number,
+  totalPages: number
+): (number | 'ellipsis')[] {
+  if (totalPages <= 0) return [];
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  const result: (number | 'ellipsis')[] = [];
+  const addEllipsis = () => {
+    if (result[result.length - 1] !== 'ellipsis') {
+      result.push('ellipsis');
+    }
+  };
+
+  result.push(1);
+
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+
+  if (start > 2) addEllipsis();
+  for (let p = start; p <= end; p += 1) {
+    result.push(p);
+  }
+  if (end < totalPages - 1) addEllipsis();
+
+  if (totalPages > 1) {
+    result.push(totalPages);
+  }
+
+  return result;
+}
+
+export function formatMoney(value: number, currency = 'TRY') {
+  return new Intl.NumberFormat('tr-TR', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
+export function formatDate(value: string) {
+  return new Intl.DateTimeFormat('tr-TR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+export type InvoiceType = 'SATIS' | 'ALIS' | 'IADE';
+
+export type Customer = {
+  id: number;
+  code: string;
+  name: string;
+  creditLimit: number;
+  balance: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Safe = {
+  id: number;
+  branchId: number;
+  name: string;
+  currency: string;
+  balance: number;
+};
+
+export type Branch = {
+  id: number;
+  name: string;
+  type: string;
+};
+
+export type ProductStock = {
+  id: number;
+  productId: number;
+  branchId: number;
+  quantity: number;
+  branch: Branch;
+};
+
+export type Product = {
+  id: number;
+  sku: string;
+  barcode: string | null;
+  name: string;
+  priceTl: number;
+  priceUsd: number;
+  stocks: ProductStock[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export function balanceStyles(balance: number) {
+  if (balance > 0) {
+    return {
+      text: 'text-red-700',
+      bg: 'bg-red-50 ring-red-200',
+      label: 'Borçlu',
+    };
+  }
+  if (balance < 0) {
+    return {
+      text: 'text-emerald-700',
+      bg: 'bg-emerald-50 ring-emerald-200',
+      label: 'Alacaklı',
+    };
+  }
+  return {
+    text: 'text-slate-600',
+    bg: 'bg-slate-50 ring-slate-200',
+    label: 'Dengede',
+  };
+}
+
+export function invoiceTypeLabel(type: string) {
+  switch (type) {
+    case 'SATIS':
+      return 'Satış';
+    case 'ALIS':
+      return 'Alış';
+    case 'IADE':
+      return 'İade';
+    default:
+      return type;
+  }
+}
+
+export function invoiceTypeStyles(type: string) {
+  switch (type) {
+    case 'SATIS':
+      return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
+    case 'ALIS':
+      return 'bg-red-50 text-red-700 ring-red-200';
+    case 'IADE':
+      return 'bg-amber-50 text-amber-700 ring-amber-200';
+    default:
+      return 'bg-slate-50 text-slate-700 ring-slate-200';
+  }
+}
