@@ -17,6 +17,7 @@ import {
   type PaginatedListResponse,
   type Product,
 } from '../lib/api';
+import { depotLabel } from '../lib/depots';
 
 export default function StockList() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -213,7 +214,7 @@ export default function StockList() {
                                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100"
                                 >
                                   <Layers className="w-3 h-3" />
-                                  {stock.branch.name}: {stock.quantity} adet
+                                  {depotLabel(stock.branch.name)}: {stock.quantity} adet
                                 </span>
                               ))}
                             {!isExpanded && stocks.length > 2 && (
@@ -237,7 +238,7 @@ export default function StockList() {
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-white border border-slate-200 text-slate-700 shadow-sm"
                                 >
                                   <span className="font-medium">
-                                    {stock.branch.name}
+                                    {depotLabel(stock.branch.name)}
                                   </span>
                                   <span className="text-indigo-600 font-semibold">
                                     {stock.quantity} adet

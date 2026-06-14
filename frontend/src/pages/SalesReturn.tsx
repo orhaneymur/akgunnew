@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { RotateCcw, Save, Search, ShoppingCart, X } from 'lucide-react';
 import { useExchangeRates } from '../hooks/useExchangeRates';
+import { depotLabel } from '../lib/depots';
 import {
   API_BASE,
   ensureArray,
@@ -39,6 +40,7 @@ type CartItem = {
   product: Product;
   quantity: number;
   unitPrice: number;
+  isChinaReturn: boolean;
 };
 type InitData = {
   branches: Branch[];
@@ -61,7 +63,6 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
   const [selectedCustomer, setSelectedCustomer] = useState<number | ''>('');
   const [selectedBranch, setSelectedBranch] = useState<number | ''>('');
   const [selectedSafe, setSelectedSafe] = useState<number | ''>('');
-  const [isDefective, setIsDefective] = useState(false);
   const [searchModal, setSearchModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Product[]>([]);
@@ -87,6 +88,13 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
     () => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
     [cart]
   );
+
+  const chinaReturnCount = useMemo(
+    () => cart.filter((item) => item.isChinaReturn).length,
+    [cart]
+  );
+
+  const stockReturnCount = cart.length - chinaReturnCount;
 
   const notify = useCallback(
     (type: 'success' | 'error', message: string) => {
@@ -196,6 +204,7 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
           product,
           quantity: 1,
           unitPrice,
+          isChinaReturn: false,
         },
       ];
     });
@@ -221,18 +230,25 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
         branchId: Number(selectedBranch),
         safeId: Number(selectedSafe),
         exchangeRate,
-        isDefective,
         items: cart.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
+          isChinaReturn: item.isChinaReturn,
         })),
       });
 
       if (response.data.success) {
+        const parts: string[] = [];
+        if (stockReturnCount > 0) {
+          parts.push(`${stockReturnCount} kalem ${depotLabel('MERKEZ_DEPO')}`);
+        }
+        if (chinaReturnCount > 0) {
+          parts.push(`${chinaReturnCount} kalem ${depotLabel('CIN_IADE_DEPO')}`);
+        }
         notify(
           'success',
-          `İade kaydedildi! ${isDefective ? 'ARIZALI_DEPO' : 'MERKEZ_DEPO'} · ${response.data.data?.invoiceNo ?? ''}`
+          `İade kaydedildi! ${parts.join(' · ')} · ${response.data.data?.invoiceNo ?? ''}`
         );
         setCart([]);
         onDataChange?.();
@@ -258,7 +274,8 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
         <div>
           <h1 className="text-xl font-bold text-slate-900">Satış İade</h1>
           <p className="text-sm text-slate-500">
-            Arızalı ürünler ARIZALI_DEPO · sağlam ürünler MERKEZ_DEPO
+            Sağlam ürünler {depotLabel('MERKEZ_DEPO')}&apos;ya · arızalı ürünler{' '}
+            {depotLabel('CIN_IADE_DEPO')}&apos;na gider
           </p>
         </div>
       </div>
@@ -325,21 +342,10 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
               </div>
             </div>
 
-            <div className="flex items-center gap-3 p-4 rounded-xl border border-slate-200 bg-slate-50">
-              <input
-                id="isDefective"
-                type="checkbox"
-                checked={isDefective}
-                onChange={(e) => setIsDefective(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
-              />
-              <label htmlFor="isDefective" className="text-sm text-slate-700">
-                <span className="font-semibold">Arızalı iade</span>
-                <span className="block text-xs text-slate-500 mt-0.5">
-                  İşaretli ise stok ARIZALI_DEPO&apos;ya, değilse MERKEZ_DEPO&apos;ya
-                  eklenir. Müşteri carisinden tutar düşülür.
-                </span>
-              </label>
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-900">
+              Her satır için <strong>Çin İade</strong> kutusunu işaretleyin. Arızalı
+              ürünler birikerek Çin&apos;e gönderilecek; işaretsiz ürünler satış
+              stoğuna geri yüklenir.
             </div>
           </section>
 
@@ -364,6 +370,9 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
                       Ürün
                     </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase w-28">
+                      Çin İade
+                    </th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase w-24">
                       Adet
                     </th>
@@ -378,12 +387,42 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {cart.map((item) => (
-                    <tr key={item.rowId}>
+                    <tr
+                      key={item.rowId}
+                      className={item.isChinaReturn ? 'bg-orange-50/50' : undefined}
+                    >
                       <td className="px-4 py-3">
                         <p className="text-sm font-medium text-slate-900">
                           {item.product.name}
                         </p>
                         <p className="text-xs text-slate-500">{item.product.sku}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          →{' '}
+                          {item.isChinaReturn
+                            ? depotLabel('CIN_IADE_DEPO')
+                            : depotLabel('MERKEZ_DEPO')}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <label className="inline-flex items-center justify-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={item.isChinaReturn}
+                            onChange={(e) =>
+                              setCart((prev) =>
+                                prev.map((row) =>
+                                  row.rowId === item.rowId
+                                    ? { ...row, isChinaReturn: e.target.checked }
+                                    : row
+                                )
+                              )
+                            }
+                            className="w-4 h-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                          />
+                          <span className="text-xs text-slate-600 sr-only sm:not-sr-only">
+                            Çin
+                          </span>
+                        </label>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <input
@@ -441,7 +480,7 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
                   ))}
                   {cart.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-4 py-12 text-center text-slate-400 text-sm">
+                      <td colSpan={6} className="px-4 py-12 text-center text-slate-400 text-sm">
                         İade sepeti boş.
                       </td>
                     </tr>
@@ -455,12 +494,16 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
         <aside className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 sticky top-6 space-y-4 h-fit">
           <h2 className="font-semibold text-slate-800">İade Özeti</h2>
           <div className="text-2xl font-bold text-slate-900">{formatMoney(totalTl)}</div>
-          <p className="text-xs text-slate-500">
-            Hedef depo:{' '}
-            <span className="font-medium text-slate-700">
-              {isDefective ? 'ARIZALI_DEPO' : 'MERKEZ_DEPO'}
-            </span>
-          </p>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between text-slate-600">
+              <span>{depotLabel('MERKEZ_DEPO')}</span>
+              <span className="font-medium text-emerald-700">{stockReturnCount} kalem</span>
+            </div>
+            <div className="flex justify-between text-slate-600">
+              <span>{depotLabel('CIN_IADE_DEPO')}</span>
+              <span className="font-medium text-orange-700">{chinaReturnCount} kalem</span>
+            </div>
+          </div>
           <button
             type="button"
             onClick={handleSubmit}

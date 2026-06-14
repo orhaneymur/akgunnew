@@ -70,14 +70,14 @@ async function main() {
     },
   });
 
-  const arizaliDepo = await prisma.branch.upsert({
+  const cinIadeDepo = await prisma.branch.upsert({
     where: { id: 3 },
     update: {
-      name: 'ARIZALI_DEPO',
+      name: 'CIN_IADE_DEPO',
       type: BranchType.WAREHOUSE,
     },
     create: {
-      name: 'ARIZALI_DEPO',
+      name: 'CIN_IADE_DEPO',
       type: BranchType.WAREHOUSE,
     },
   });
@@ -225,13 +225,13 @@ async function main() {
       where: {
         productId_branchId: {
           productId: product.id,
-          branchId: arizaliDepo.id,
+          branchId: cinIadeDepo.id,
         },
       },
       update: { quantity: 0 },
       create: {
         productId: product.id,
-        branchId: arizaliDepo.id,
+        branchId: cinIadeDepo.id,
         quantity: 0,
       },
     });
@@ -386,7 +386,7 @@ async function main() {
   }
 
   console.log(
-    'Seed tamamlandı: şube, MERKEZ_DEPO, ARIZALI_DEPO, kasalar, müşteri, personel, ürünler, faturalar ve kasa hareketleri yüklendi.'
+    'Seed tamamlandı: şube, MERKEZ_DEPO, CIN_IADE_DEPO, kasalar, müşteri, personel, ürünler, faturalar ve kasa hareketleri yüklendi.'
   );
 }
 

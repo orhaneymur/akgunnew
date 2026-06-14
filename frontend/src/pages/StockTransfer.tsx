@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { ArrowLeftRight, Save, Search } from 'lucide-react';
 import { API_BASE, ensureArray, type PaginatedListResponse } from '../lib/api';
+import { depotLabel, isWarehouseDepot } from '../lib/depots';
 
 type Branch = { id: number; name: string; type: string };
 type Product = {
@@ -40,7 +41,7 @@ export default function StockTransfer({
       .then((res) => {
         if (res.data.success) {
           const depots = ensureArray(res.data.data).filter((b) =>
-            ['MERKEZ_DEPO', 'ARIZALI_DEPO'].includes(b.name)
+            isWarehouseDepot(b.name)
           );
           setBranches(depots);
           if (depots.length >= 2) {
@@ -126,7 +127,9 @@ export default function StockTransfer({
         </div>
         <div>
           <h1 className="text-xl font-bold text-slate-900">Depo Transfer</h1>
-          <p className="text-sm text-slate-500">MERKEZ_DEPO ↔ ARIZALI_DEPO</p>
+          <p className="text-sm text-slate-500">
+            {depotLabel('MERKEZ_DEPO')} ↔ {depotLabel('CIN_IADE_DEPO')}
+          </p>
         </div>
       </div>
 
@@ -145,7 +148,7 @@ export default function StockTransfer({
             >
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.name}
+                  {depotLabel(b.name)}
                 </option>
               ))}
             </select>
@@ -163,7 +166,7 @@ export default function StockTransfer({
             >
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.name}
+                  {depotLabel(b.name)}
                 </option>
               ))}
             </select>

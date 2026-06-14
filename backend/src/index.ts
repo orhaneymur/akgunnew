@@ -14,6 +14,7 @@ type StoreItem = {
   quantity: number;
   unitPrice: number;
   discountPercent?: number;
+  isChinaReturn?: boolean;
 };
 
 const app = Fastify({ logger: true });
@@ -147,21 +148,58 @@ async function generateReturnInvoiceNo(
 
 const DEPOT_NAMES = {
   MERKEZ: 'MERKEZ_DEPO',
-  ARIZALI: 'ARIZALI_DEPO',
+  CIN_IADE: 'CIN_IADE_DEPO',
 } as const;
+
+const DEPOT_LOOKUP: Record<keyof typeof DEPOT_NAMES, string[]> = {
+  MERKEZ: ['MERKEZ_DEPO'],
+  CIN_IADE: ['CIN_IADE_DEPO', 'ARIZALI_DEPO'],
+};
 
 async function getDepotBranchId(
   tx: Prisma.TransactionClient,
   depot: keyof typeof DEPOT_NAMES
 ): Promise<number> {
   const branch = await tx.branch.findFirst({
-    where: { name: DEPOT_NAMES[depot] },
+    where: { name: { in: DEPOT_LOOKUP[depot] } },
     select: { id: true },
   });
   if (!branch) {
     throw new Error(`${DEPOT_NAMES[depot]} şubesi bulunamadı.`);
   }
   return branch.id;
+}
+
+async function ensureDepots() {
+  const merkez = await prisma.branch.findFirst({
+    where: { name: 'MERKEZ_DEPO' },
+    select: { id: true },
+  });
+  if (!merkez) {
+    await prisma.branch.create({
+      data: { name: 'MERKEZ_DEPO', type: 'WAREHOUSE' },
+    });
+  }
+
+  const cinIade = await prisma.branch.findFirst({
+    where: { name: 'CIN_IADE_DEPO' },
+    select: { id: true },
+  });
+  const legacyArizali = await prisma.branch.findFirst({
+    where: { name: 'ARIZALI_DEPO' },
+    select: { id: true },
+  });
+
+  if (!cinIade && legacyArizali) {
+    await prisma.branch.update({
+      where: { id: legacyArizali.id },
+      data: { name: 'CIN_IADE_DEPO' },
+    });
+  } else if (!cinIade) {
+    await prisma.branch.create({
+      data: { name: 'CIN_IADE_DEPO', type: 'WAREHOUSE' },
+    });
+  }
 }
 
 async function incrementStock(
@@ -1407,7 +1445,8 @@ app.post<{
     branchId: number;
     safeId: number;
     exchangeRate?: number;
-    isDefective: boolean;
+    /** @deprecated Satır bazlı isChinaReturn kullanın */
+    isDefective?: boolean;
     items: StoreItem[];
   };
 }>('/api/sales/return', async (request, reply) => {
@@ -1432,8 +1471,8 @@ app.post<{
   try {
     const invoice = await prisma.$transaction(async (tx) => {
       const invoiceNo = await generateReturnInvoiceNo(tx);
-      const targetDepot = isDefective ? 'ARIZALI' : 'MERKEZ';
-      const stockBranchId = await getDepotBranchId(tx, targetDepot);
+      const merkezDepoId = await getDepotBranchId(tx, 'MERKEZ');
+      const cinIadeDepoId = await getDepotBranchId(tx, 'CIN_IADE');
 
       const createdInvoice = await tx.invoice.create({
         data: {
@@ -1460,6 +1499,8 @@ app.post<{
       });
 
       for (const item of items) {
+        const toChinaReturn = item.isChinaReturn ?? isDefective ?? false;
+        const stockBranchId = toChinaReturn ? cinIadeDepoId : merkezDepoId;
         await incrementStock(
           tx,
           item.productId,
@@ -1547,7 +1588,7 @@ app.post<{
       await tx.productStock.create({
         data: {
           productId: created.id,
-          branchId: await getDepotBranchId(tx, 'ARIZALI'),
+          branchId: await getDepotBranchId(tx, 'CIN_IADE'),
           quantity: 0,
         },
       });
@@ -2480,6 +2521,7 @@ app.get<{ Querystring: { customerId?: string } }>(
 
 async function start() {
   try {
+    await ensureDepots();
     await app.listen({ port: PORT, host: '0.0.0.0' });
     app.log.info(`API sunucusu http://localhost:${PORT} adresinde çalışıyor`);
   } catch (error) {

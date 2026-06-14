@@ -80,20 +80,20 @@ function buildContactPerson(row: CustomerRow): string | null {
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
-async function ensureDepots(): Promise<{ merkezDepoId: number; arizaliDepoId: number }> {
+async function ensureDepots(): Promise<{ merkezDepoId: number; cinIadeDepoId: number }> {
   const merkezDepo = await prisma.branch.upsert({
     where: { id: 2 },
     update: { name: 'MERKEZ_DEPO', type: BranchType.WAREHOUSE },
     create: { name: 'MERKEZ_DEPO', type: BranchType.WAREHOUSE },
   });
 
-  const arizaliDepo = await prisma.branch.upsert({
+  const cinIadeDepo = await prisma.branch.upsert({
     where: { id: 3 },
-    update: { name: 'ARIZALI_DEPO', type: BranchType.WAREHOUSE },
-    create: { name: 'ARIZALI_DEPO', type: BranchType.WAREHOUSE },
+    update: { name: 'CIN_IADE_DEPO', type: BranchType.WAREHOUSE },
+    create: { name: 'CIN_IADE_DEPO', type: BranchType.WAREHOUSE },
   });
 
-  return { merkezDepoId: merkezDepo.id, arizaliDepoId: arizaliDepo.id };
+  return { merkezDepoId: merkezDepo.id, cinIadeDepoId: cinIadeDepo.id };
 }
 
 async function importCustomers(): Promise<{
@@ -161,7 +161,7 @@ async function importCustomers(): Promise<{
 async function upsertProductWithStock(
   row: ProductRow,
   merkezDepoId: number,
-  arizaliDepoId: number,
+  cinIadeDepoId: number,
   rowIndex: number
 ): Promise<void> {
   const sku = asString(row.StokKodu);
@@ -250,12 +250,12 @@ async function upsertProductWithStock(
 
   await prisma.productStock.upsert({
     where: {
-      productId_branchId: { productId, branchId: arizaliDepoId },
+      productId_branchId: { productId, branchId: cinIadeDepoId },
     },
     update: {},
     create: {
       productId,
-      branchId: arizaliDepoId,
+      branchId: cinIadeDepoId,
       quantity: 0,
     },
   });
@@ -263,7 +263,7 @@ async function upsertProductWithStock(
 
 async function importProducts(
   merkezDepoId: number,
-  arizaliDepoId: number
+  cinIadeDepoId: number
 ): Promise<{
   success: number;
   skipped: number;
@@ -283,7 +283,7 @@ async function importProducts(
     for (const [batchIndex, row] of batch.entries()) {
       const rowIndex = i + batchIndex;
       try {
-        await upsertProductWithStock(row, merkezDepoId, arizaliDepoId, rowIndex);
+        await upsertProductWithStock(row, merkezDepoId, cinIadeDepoId, rowIndex);
         success += 1;
       } catch (error) {
         skipped += 1;
@@ -307,12 +307,12 @@ async function main() {
   console.log('  Akgün Teknik — Toplu Excel Aktarımı');
   console.log('═══════════════════════════════════════════');
 
-  const { merkezDepoId, arizaliDepoId } = await ensureDepots();
+  const { merkezDepoId, cinIadeDepoId } = await ensureDepots();
   console.log(`\n✓ MERKEZ_DEPO (id: ${merkezDepoId}) hazır`);
-  console.log(`✓ ARIZALI_DEPO (id: ${arizaliDepoId}) hazır`);
+  console.log(`✓ CIN_IADE_DEPO (id: ${cinIadeDepoId}) hazır`);
 
   const customerResult = await importCustomers();
-  const productResult = await importProducts(merkezDepoId, arizaliDepoId);
+  const productResult = await importProducts(merkezDepoId, cinIadeDepoId);
 
   const totalCustomers = await prisma.customer.count();
   const totalProducts = await prisma.product.count();
