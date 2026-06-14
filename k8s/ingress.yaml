@@ -1,0 +1,33 @@
+# Traefik / nginx Ingress Controller ile HTTPS (K3s)
+# Ön koşul: ingress-nginx veya traefik kurulu olmalı
+# kubectl apply -f k8s/ingress.yaml
+#
+# Host adını kendi domain'inize göre düzenleyin.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: akgunteknik-ingress
+  annotations:
+    # nginx ingress örneği:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # cert-manager kullanıyorsanız:
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: erp.akgunteknik.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: akgunteknik-frontend
+                port:
+                  number: 80
+  # tls:
+  #   - hosts:
+  #       - erp.akgunteknik.local
+  #     secretName: akgunteknik-tls

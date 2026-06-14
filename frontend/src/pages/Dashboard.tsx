@@ -21,6 +21,7 @@ import {
   invoiceTypeStyles,
 } from '../lib/api';
 import type { NavigateFn } from '../lib/navigation';
+import SimpleBarChart from '../components/SimpleBarChart';
 
 type SafeBalance = {
   id: number;
@@ -64,6 +65,13 @@ type DashboardData = {
   recentInvoices: RecentInvoice[];
   recentPayments: RecentPayment[];
   staffTurnover: StaffTurnover[];
+  charts?: {
+    dailySales: { label: string; total: number }[];
+    monthlySales: { label: string; total: number }[];
+    topProducts: { name: string; quantity: number }[];
+    staffComparison: { name: string; monthly: number }[];
+  };
+  lowStock?: { id: number; sku: string; name: string; quantity: number }[];
 };
 
 export default function Dashboard({
@@ -93,6 +101,8 @@ export default function Dashboard({
             recentInvoices: ensureArray(payload.recentInvoices),
             recentPayments: ensureArray(payload.recentPayments),
             staffTurnover: ensureArray(payload.staffTurnover),
+            charts: payload.charts,
+            lowStock: ensureArray(payload.lowStock),
           });
         }
       } catch {
@@ -206,6 +216,73 @@ export default function Dashboard({
             );
           })}
         </section>
+      )}
+
+      {data.lowStock && data.lowStock.length > 0 && (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 shadow-sm">
+          <h2 className="mb-3 font-semibold text-amber-900">
+            Kritik Stok Uyarısı ({data.lowStock.length} ürün ≤ 5 adet)
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {data.lowStock.map((item) => (
+              <span
+                key={item.id}
+                className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs text-amber-900"
+              >
+                {item.sku} · {item.quantity} adet
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {data.charts && (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 font-semibold text-slate-800">Son 7 Gün Ciro</h2>
+            <SimpleBarChart
+              items={data.charts.dailySales.map((d) => ({
+                label: d.label,
+                value: d.total,
+                color: 'bg-emerald-500',
+              }))}
+              valueFormatter={(v) => formatMoney(v)}
+            />
+          </section>
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 font-semibold text-slate-800">Aylık Ciro (6 Ay)</h2>
+            <SimpleBarChart
+              items={data.charts.monthlySales.map((d) => ({
+                label: d.label,
+                value: d.total,
+                color: 'bg-indigo-500',
+              }))}
+              valueFormatter={(v) => formatMoney(v)}
+            />
+          </section>
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 font-semibold text-slate-800">En Çok Satan 10 Ürün (30 gün)</h2>
+            <SimpleBarChart
+              items={data.charts.topProducts.map((p) => ({
+                label: p.name.length > 18 ? `${p.name.slice(0, 18)}…` : p.name,
+                value: p.quantity,
+                color: 'bg-violet-500',
+              }))}
+              valueFormatter={(v) => `${Math.round(v)} adet`}
+            />
+          </section>
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 font-semibold text-slate-800">Personel Ciroları (Aylık)</h2>
+            <SimpleBarChart
+              items={data.charts.staffComparison.map((s) => ({
+                label: s.name.split(' ')[0],
+                value: s.monthly,
+                color: 'bg-sky-500',
+              }))}
+              valueFormatter={(v) => formatMoney(v)}
+            />
+          </section>
+        </div>
       )}
 
       {/* Özet Kartları */}

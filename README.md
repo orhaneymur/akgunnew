@@ -1,4 +1,4 @@
-# Akgün Teknik ERP v1.4
+# Akgün Teknik ERP v1.5
 
 ## Proje Özeti
 
@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.2` · `since1907/akgun-frontend:v1.4`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.5` · `since1907/akgun-frontend:v1.5`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -27,7 +27,7 @@ akgunteknik/
 
 ---
 
-## Menü Yapısı (v1.4 — 17 canlı ekran)
+## Menü Yapısı (v1.5 — 23 canlı ekran)
 
 Placeholder sayfalar kaldırıldı; sidebar yalnızca çalışan modülleri listeler.
 
@@ -36,9 +36,9 @@ Placeholder sayfalar kaldırıldı; sidebar yalnızca çalışan modülleri list
 | **Ana Sayfa** | Dashboard (5 hızlı erişim kartı) |
 | **Satış İşlemleri** | Satış Yap (F2), Satış İade |
 | **Alış İşlemleri** | Alış Faturası |
-| **Stok İşlemleri** | Stok Listesi, Stok Kartı Oluştur, Barkod Etiket |
+| **Stok İşlemleri** | Stok Listesi, Depo Transfer, Stok Hareketleri, Stok Kartı, Barkod Etiket |
 | **Müşteri İşlemleri** | Müşteri Listesi, Tahsilat / Ödeme, Müşteri Bakiye |
-| **Raporlar** | Kâr-Zarar Raporu |
+| **Raporlar** | Kâr-Zarar, Stok Değeri, Kasa Raporu, Müşteri Ekstre |
 | **Tanımlar** | Ürün Tanımları, Kasa Tanımları, Personel Tanımları |
 | **Faturalar** | Fatura Listesi (filtre: Tümü / Satış / Alış / İade) |
 
@@ -262,6 +262,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.2 | Alış faturası API + ekranı |
 | v1.3 | Mobil UI (hamburger menü) |
 | v1.4 | Menü sadeleştirme, tek filtreli fatura listesi |
+| v1.5 | Dashboard grafikleri, depo transfer, raporlar, JWT auth, K8s ingress |
 
 ---
 

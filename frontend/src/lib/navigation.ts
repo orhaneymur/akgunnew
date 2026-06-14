@@ -18,12 +18,17 @@ export type PageId =
   | 'sales-return'
   | 'invoice-purchase'
   | 'stock-list'
+  | 'stock-transfer'
+  | 'stock-movements'
   | 'product-create'
   | 'barcode-label'
   | 'customer-list'
   | 'customer-payments'
   | 'customer-balance'
   | 'report-sales'
+  | 'report-stock-value'
+  | 'report-cash-flow'
+  | 'report-customer-statement'
   | 'def-products'
   | 'def-safes'
   | 'def-users'
@@ -81,6 +86,8 @@ export const menuCategories: MenuCategory[] = [
     icon: Layers,
     items: [
       { id: 'stock-list', label: 'Stok Listesi' },
+      { id: 'stock-transfer', label: 'Depo Transfer' },
+      { id: 'stock-movements', label: 'Stok Hareketleri' },
       { id: 'product-create', label: 'Stok Kartı Oluştur' },
       { id: 'barcode-label', label: 'Barkod Etiket' },
     ],
@@ -99,7 +106,12 @@ export const menuCategories: MenuCategory[] = [
     id: 'reports',
     label: 'Raporlar',
     icon: BarChart3,
-    items: [{ id: 'report-sales', label: 'Kâr-Zarar Raporu' }],
+    items: [
+      { id: 'report-sales', label: 'Kâr-Zarar Raporu' },
+      { id: 'report-stock-value', label: 'Stok Değeri' },
+      { id: 'report-cash-flow', label: 'Kasa Raporu' },
+      { id: 'report-customer-statement', label: 'Müşteri Ekstre' },
+    ],
   },
   {
     id: 'definitions',

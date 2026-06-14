@@ -25,6 +25,11 @@ import PersonnelManager from './pages/PersonnelManager';
 import ProductCreate from './pages/ProductCreate';
 import SalesReturn from './pages/SalesReturn';
 import PurchaseCreate from './pages/PurchaseCreate';
+import StockTransfer from './pages/StockTransfer';
+import StockMovements from './pages/StockMovements';
+import StockValueReport from './pages/StockValueReport';
+import CashFlowReport from './pages/CashFlowReport';
+import CustomerStatement from './pages/CustomerStatement';
 import Login from './pages/Login';
 
 const initialOpenMenus = menuCategories.reduce(
@@ -200,6 +205,15 @@ function App() {
         );
       case 'stock-list':
         return <StockList />;
+      case 'stock-transfer':
+        return (
+          <StockTransfer
+            onNotify={showNotification}
+            onDataChange={handleDataChange}
+          />
+        );
+      case 'stock-movements':
+        return <StockMovements />;
       case 'barcode-label':
         return <BarcodePrint />;
       case 'customer-list':
@@ -215,6 +229,12 @@ function App() {
         return <CustomerBalances />;
       case 'report-sales':
         return <ProfitReport />;
+      case 'report-stock-value':
+        return <StockValueReport />;
+      case 'report-cash-flow':
+        return <CashFlowReport />;
+      case 'report-customer-statement':
+        return <CustomerStatement />;
       case 'def-products':
         return <CategoryManager />;
       case 'def-safes':

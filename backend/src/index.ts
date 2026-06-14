@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
+import jwt from '@fastify/jwt';
+import bcrypt from 'bcrypt';
 import Fastify from 'fastify';
 import type { Prisma } from '@prisma/client';
 import { prisma } from './lib/prisma.js';
@@ -277,19 +280,47 @@ function buildCustomerSearchWhere(search: string): Prisma.CustomerWhereInput {
   };
 }
 
-app.register(cors, {
-  origin: true,
-});
+app.register(cors, { origin: true });
+
+const JWT_SECRET =
+  process.env.JWT_SECRET ?? 'akgunteknik-dev-secret-degistirin';
+
+app.register(jwt, { secret: JWT_SECRET });
+app.register(rateLimit, { global: false });
 
 const ADMIN_USERNAME = 'akgunteknik';
 const ADMIN_PASSWORD = '123456';
+const ADMIN_BCRYPT_HASH = bcrypt.hashSync(ADMIN_PASSWORD, 10);
+
+type AuthUserPayload = {
+  sub: string;
+  name: string;
+  role: string;
+};
+
+async function issueAuthToken(
+  reply: { jwtSign: (payload: AuthUserPayload, options?: { expiresIn: string }) => Promise<string> },
+  user: AuthUserPayload
+) {
+  const token = await reply.jwtSign(user, { expiresIn: '7d' });
+  return token;
+}
 
 app.post<{ Body: { username: string; password: string } }>(
   '/api/auth/login',
+  {
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: '1 minute',
+      },
+    },
+  },
   async (request, reply) => {
     const { username, password } = request.body ?? {};
+    const trimmedUsername = username?.trim();
 
-    if (!username?.trim() || !password) {
+    if (!trimmedUsername || !password) {
       return reply.status(400).send({
         success: false,
         message: 'Kullanıcı adı ve şifre zorunludur.',
@@ -297,24 +328,63 @@ app.post<{ Body: { username: string; password: string } }>(
       });
     }
 
-    if (username.trim() === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-      const token = Buffer.from(
-        `${ADMIN_USERNAME}:${Date.now()}`,
-        'utf-8'
-      ).toString('base64url');
-
-      return {
-        success: true,
-        data: {
-          token,
-          user: {
-            username: ADMIN_USERNAME,
-            name: 'Akgün Teknik',
-            role: 'admin',
+    if (trimmedUsername === ADMIN_USERNAME) {
+      const valid =
+        password === ADMIN_PASSWORD ||
+        bcrypt.compareSync(password, ADMIN_BCRYPT_HASH);
+      if (valid) {
+        const token = await issueAuthToken(reply, {
+          sub: ADMIN_USERNAME,
+          name: 'Akgün Teknik',
+          role: 'admin',
+        });
+        return {
+          success: true,
+          data: {
+            token,
+            user: {
+              username: ADMIN_USERNAME,
+              name: 'Akgün Teknik',
+              role: 'admin',
+            },
           },
-        },
-        message: 'Giriş başarılı.',
-      };
+          message: 'Giriş başarılı.',
+        };
+      }
+    }
+
+    const dbUser = await prisma.user.findFirst({
+      where: {
+        OR: [{ email: trimmedUsername }, { name: trimmedUsername }],
+      },
+    });
+
+    if (dbUser) {
+      const stored = dbUser.password;
+      const validPassword =
+        stored.startsWith('$2') && bcrypt.compareSync(password, stored)
+          ? true
+          : stored === password;
+
+      if (validPassword) {
+        const token = await issueAuthToken(reply, {
+          sub: String(dbUser.id),
+          name: dbUser.name,
+          role: dbUser.role,
+        });
+        return {
+          success: true,
+          data: {
+            token,
+            user: {
+              username: dbUser.email,
+              name: dbUser.name,
+              role: dbUser.role,
+            },
+          },
+          message: 'Giriş başarılı.',
+        };
+      }
     }
 
     return reply.status(401).send({
@@ -324,6 +394,27 @@ app.post<{ Body: { username: string; password: string } }>(
     });
   }
 );
+
+app.get('/api/auth/me', async (request, reply) => {
+  try {
+    const payload = await request.jwtVerify<AuthUserPayload>();
+    return {
+      success: true,
+      data: {
+        username: payload.sub,
+        name: payload.name,
+        role: payload.role,
+      },
+      message: 'Oturum geçerli.',
+    };
+  } catch {
+    return reply.status(401).send({
+      success: false,
+      message: 'Geçersiz veya süresi dolmuş oturum.',
+      errors: null,
+    });
+  }
+});
 
 app.get('/api/sales/dashboard', async () => {
   const now = new Date();
@@ -414,6 +505,114 @@ app.get('/api/sales/dashboard', async () => {
     a.userName.localeCompare(b.userName, 'tr')
   );
 
+  const sevenDaysAgo = new Date(startOfDay);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const [chartSales, chartPurchases, topProductRows, lowStockRows] =
+    await Promise.all([
+      prisma.invoice.findMany({
+        where: { type: 'SATIS', createdAt: { gte: sevenDaysAgo } },
+        select: { totalAmountTl: true, createdAt: true },
+      }),
+      prisma.invoice.findMany({
+        where: { type: 'SATIS', createdAt: { gte: sixMonthsAgo } },
+        select: { totalAmountTl: true, createdAt: true },
+      }),
+      prisma.invoiceItem.findMany({
+        where: {
+          invoice: { type: 'SATIS', createdAt: { gte: thirtyDaysAgo } },
+        },
+        select: {
+          quantity: true,
+          product: { select: { name: true } },
+        },
+      }),
+      prisma.branch
+        .findFirst({
+          where: { name: 'MERKEZ_DEPO' },
+          select: { id: true },
+        })
+        .then(async (branch) => {
+          if (!branch) return [];
+          return prisma.productStock.findMany({
+            where: { branchId: branch.id, quantity: { lte: 5 } },
+            include: {
+              product: { select: { id: true, sku: true, name: true } },
+            },
+            orderBy: { quantity: 'asc' },
+            take: 15,
+          });
+        }),
+    ]);
+
+  const dailySalesMap = new Map<string, number>();
+  for (let i = 0; i < 7; i += 1) {
+    const d = new Date(sevenDaysAgo);
+    d.setDate(d.getDate() + i);
+    dailySalesMap.set(d.toISOString().slice(0, 10), 0);
+  }
+  for (const inv of chartSales) {
+    const key = inv.createdAt.toISOString().slice(0, 10);
+    if (dailySalesMap.has(key)) {
+      dailySalesMap.set(key, (dailySalesMap.get(key) ?? 0) + inv.totalAmountTl);
+    }
+  }
+  const dailySales = Array.from(dailySalesMap.entries()).map(([date, total]) => ({
+    date,
+    label: new Date(`${date}T12:00:00`).toLocaleDateString('tr-TR', {
+      weekday: 'short',
+      day: 'numeric',
+    }),
+    total,
+  }));
+
+  const monthlySalesMap = new Map<string, number>();
+  for (let i = 0; i < 6; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    monthlySalesMap.set(key, 0);
+  }
+  for (const inv of chartPurchases) {
+    const key = `${inv.createdAt.getFullYear()}-${String(inv.createdAt.getMonth() + 1).padStart(2, '0')}`;
+    if (monthlySalesMap.has(key)) {
+      monthlySalesMap.set(
+        key,
+        (monthlySalesMap.get(key) ?? 0) + inv.totalAmountTl
+      );
+    }
+  }
+  const monthlySales = Array.from(monthlySalesMap.entries()).map(
+    ([month, total]) => ({
+      month,
+      label: new Date(`${month}-01T12:00:00`).toLocaleDateString('tr-TR', {
+        month: 'short',
+        year: '2-digit',
+      }),
+      total,
+    })
+  );
+
+  const productQtyMap = new Map<string, number>();
+  for (const row of topProductRows) {
+    const name = row.product.name;
+    productQtyMap.set(name, (productQtyMap.get(name) ?? 0) + row.quantity);
+  }
+  const topProducts = Array.from(productQtyMap.entries())
+    .map(([name, quantity]) => ({ name, quantity }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 10);
+
+  const lowStock = lowStockRows.map((row) => ({
+    id: row.product.id,
+    sku: row.product.sku,
+    name: row.product.name,
+    quantity: row.quantity,
+  }));
+
   return {
     success: true,
     data: {
@@ -421,6 +620,16 @@ app.get('/api/sales/dashboard', async () => {
       recentInvoices,
       recentPayments,
       staffTurnover,
+      charts: {
+        dailySales,
+        monthlySales,
+        topProducts,
+        staffComparison: staffTurnover.map((s) => ({
+          name: s.userName,
+          monthly: s.monthly,
+        })),
+      },
+      lowStock,
     },
     message: 'Dashboard data retrieved successfully.',
   };
@@ -1735,11 +1944,14 @@ app.post<{
   }
 
   try {
+    const hashedPassword = password.startsWith('$2')
+      ? password
+      : bcrypt.hashSync(password, 10);
     const user = await prisma.user.create({
       data: {
         name: trimmedName,
         email: trimmedEmail,
-        password,
+        password: hashedPassword,
         role: role ?? 'staff',
       },
       select: {
@@ -1836,6 +2048,296 @@ app.get('/api/settings/branches', async () => {
     message: 'Branches retrieved successfully.',
   };
 });
+
+app.get<{ Querystring: { page?: string; limit?: string } }>(
+  '/api/reports/stock-history',
+  async (request) => {
+    const pagination = parseListPageQuery(request.query);
+    const merkezDepo = await prisma.branch.findFirst({
+      where: { name: 'MERKEZ_DEPO' },
+      select: { id: true, name: true },
+    });
+
+    const [items, totalCount] = await Promise.all([
+      prisma.invoiceItem.findMany({
+        where: {
+          invoice: { type: { in: ['SATIS', 'ALIS', 'IADE'] } },
+        },
+        orderBy: { invoice: { createdAt: 'desc' } },
+        take: pagination.limit,
+        skip: pagination.skip,
+        include: {
+          product: { select: { id: true, sku: true, name: true } },
+          invoice: {
+            select: {
+              invoiceNo: true,
+              type: true,
+              createdAt: true,
+              customer: { select: { code: true, name: true } },
+            },
+          },
+        },
+      }),
+      prisma.invoiceItem.count({
+        where: { invoice: { type: { in: ['SATIS', 'ALIS', 'IADE'] } } },
+      }),
+    ]);
+
+    const data = items.map((item) => {
+      let direction: 'IN' | 'OUT' = 'IN';
+      let depot = merkezDepo?.name ?? 'MERKEZ_DEPO';
+
+      if (item.invoice.type === 'SATIS') {
+        direction = 'OUT';
+        depot = merkezDepo?.name ?? 'MERKEZ_DEPO';
+      } else if (item.invoice.type === 'ALIS') {
+        direction = 'IN';
+        depot = merkezDepo?.name ?? 'MERKEZ_DEPO';
+      } else if (item.invoice.type === 'IADE') {
+        direction = 'IN';
+        depot = merkezDepo?.name ?? 'MERKEZ_DEPO';
+      }
+
+      return {
+        id: item.id,
+        product: item.product,
+        quantity: item.quantity,
+        direction,
+        depot,
+        invoiceNo: item.invoice.invoiceNo,
+        invoiceType: item.invoice.type,
+        customer: item.invoice.customer,
+        createdAt: item.invoice.createdAt,
+      };
+    });
+
+    return buildListResponse(data, totalCount, pagination.limit, pagination.page);
+  }
+);
+
+app.get('/api/reports/stock-value', async (request, reply) => {
+  const stocks = await prisma.productStock.findMany({
+    where: { branch: { name: 'MERKEZ_DEPO' } },
+    include: {
+      product: {
+        select: { id: true, sku: true, name: true, costPrice: true, priceTl: true },
+      },
+    },
+    orderBy: { product: { name: 'asc' } },
+  });
+
+  const rows = stocks.map((row) => ({
+    productId: row.product.id,
+    sku: row.product.sku,
+    name: row.product.name,
+    quantity: row.quantity,
+    costPrice: row.product.costPrice,
+    priceTl: row.product.priceTl,
+    stockValue: row.quantity * row.product.costPrice,
+    retailValue: row.quantity * row.product.priceTl,
+  }));
+
+  const totals = rows.reduce(
+    (acc, row) => ({
+      totalQuantity: acc.totalQuantity + row.quantity,
+      totalCostValue: acc.totalCostValue + row.stockValue,
+      totalRetailValue: acc.totalRetailValue + row.retailValue,
+    }),
+    { totalQuantity: 0, totalCostValue: 0, totalRetailValue: 0 }
+  );
+
+  if (request.headers.accept?.includes('text/csv')) {
+    const header = 'SKU;Ürün;Adet;Maliyet;Stok Değeri;Perakende Değeri';
+    const lines = rows.map(
+      (r) =>
+        `${r.sku};${r.name};${r.quantity};${r.costPrice};${r.stockValue.toFixed(2)};${r.retailValue.toFixed(2)}`
+    );
+    reply.header('Content-Type', 'text/csv; charset=utf-8');
+    reply.header(
+      'Content-Disposition',
+      'attachment; filename="stok-degeri.csv"'
+    );
+    return `${header}\n${lines.join('\n')}`;
+  }
+
+  return {
+    success: true,
+    data: { rows, totals },
+    message: 'Stock value report retrieved successfully.',
+  };
+});
+
+app.get<{ Querystring: { from?: string; to?: string } }>(
+  '/api/reports/cash-flow',
+  async (request, reply) => {
+    const now = new Date();
+    const from = request.query.from
+      ? new Date(request.query.from)
+      : new Date(now.getFullYear(), now.getMonth(), 1);
+    const to = request.query.to ? new Date(request.query.to) : now;
+    to.setHours(23, 59, 59, 999);
+
+    const transactions = await prisma.transaction.findMany({
+      where: { createdAt: { gte: from, lte: to } },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        safe: { select: { id: true, name: true, currency: true } },
+        customer: { select: { id: true, code: true, name: true } },
+      },
+    });
+
+    const summary = transactions.reduce(
+      (acc, tx) => {
+        if (tx.type === 'GIRIS') acc.totalIn += tx.amount;
+        else acc.totalOut += tx.amount;
+        return acc;
+      },
+      { totalIn: 0, totalOut: 0 }
+    );
+
+    if (request.headers.accept?.includes('text/csv')) {
+      const header = 'Tarih;Tip;Kasa;Tutar;Açıklama';
+      const lines = transactions.map((tx) =>
+        [
+          tx.createdAt.toISOString(),
+          tx.type,
+          tx.safe.name,
+          tx.amount,
+          tx.description.replace(/;/g, ','),
+        ].join(';')
+      );
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header(
+        'Content-Disposition',
+        'attachment; filename="kasa-raporu.csv"'
+      );
+      return `${header}\n${lines.join('\n')}`;
+    }
+
+    return {
+      success: true,
+      data: {
+        from,
+        to,
+        summary: { ...summary, net: summary.totalIn - summary.totalOut },
+        transactions,
+      },
+      message: 'Cash flow report retrieved successfully.',
+    };
+  }
+);
+
+app.get<{ Querystring: { customerId?: string } }>(
+  '/api/reports/customer-statement',
+  async (request, reply) => {
+    const customerId = Number(request.query.customerId);
+    if (!Number.isFinite(customerId) || customerId <= 0) {
+      return {
+        success: false,
+        message: 'customerId zorunludur.',
+        errors: null,
+      };
+    }
+
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        balance: true,
+        creditLimit: true,
+      },
+    });
+
+    if (!customer) {
+      return {
+        success: false,
+        message: 'Müşteri bulunamadı.',
+        errors: null,
+      };
+    }
+
+    const [invoices, payments] = await Promise.all([
+      prisma.invoice.findMany({
+        where: { customerId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          invoiceNo: true,
+          type: true,
+          totalAmountTl: true,
+          paymentMethod: true,
+          createdAt: true,
+        },
+      }),
+      prisma.transaction.findMany({
+        where: { customerId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          safe: { select: { name: true, currency: true } },
+        },
+      }),
+    ]);
+
+    type StatementLine = {
+      date: Date;
+      kind: 'invoice' | 'payment';
+      description: string;
+      debit: number;
+      credit: number;
+    };
+
+    const lines: StatementLine[] = [];
+
+    for (const inv of invoices) {
+      const isDebit = inv.type === 'SATIS';
+      lines.push({
+        date: inv.createdAt,
+        kind: 'invoice',
+        description: `${inv.invoiceNo} (${inv.type})`,
+        debit: isDebit ? inv.totalAmountTl : 0,
+        credit: !isDebit ? inv.totalAmountTl : 0,
+      });
+    }
+
+    for (const pay of payments) {
+      lines.push({
+        date: pay.createdAt,
+        kind: 'payment',
+        description: pay.description,
+        debit: pay.type === 'CIKIS' ? pay.amount : 0,
+        credit: pay.type === 'GIRIS' ? pay.amount : 0,
+      });
+    }
+
+    lines.sort((a, b) => b.date.getTime() - a.date.getTime());
+
+    if (request.headers.accept?.includes('text/csv')) {
+      const header = 'Tarih;Açıklama;Borç;Alacak';
+      const csvLines = lines.map((line) =>
+        [
+          line.date.toISOString(),
+          line.description.replace(/;/g, ','),
+          line.debit,
+          line.credit,
+        ].join(';')
+      );
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header(
+        'Content-Disposition',
+        `attachment; filename="ekstre-${customer.code}.csv"`
+      );
+      return `${header}\n${csvLines.join('\n')}`;
+    }
+
+    return {
+      success: true,
+      data: { customer, lines },
+      message: 'Customer statement retrieved successfully.',
+    };
+  }
+);
 
 async function start() {
   try {
