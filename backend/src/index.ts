@@ -284,6 +284,7 @@ const FALLBACK_USD = 46.39;
 const FALLBACK_EUR = 53.628;
 const TCMB_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml';
 const RATES_CACHE_MS = 15 * 60 * 1000;
+const FALLBACK_CACHE_MS = 60 * 1000;
 
 type CachedRates = {
   usd: number;
@@ -304,24 +305,60 @@ function parseTcmbForexSelling(xml: string, currencyCode: string): number | null
   );
   if (!blockMatch) return null;
   const sellingMatch = blockMatch[0].match(
-    /<ForexSelling>([\d,]+)<\/ForexSelling>/i
+    /<ForexSelling>([\d.,]+)<\/ForexSelling>/i
   );
   if (!sellingMatch) return null;
-  const value = Number.parseFloat(sellingMatch[1].replace(',', '.'));
+  const normalized = sellingMatch[1].includes(',')
+    ? sellingMatch[1].replace(/\./g, '').replace(',', '.')
+    : sellingMatch[1];
+  const value = Number.parseFloat(normalized);
   return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+async function fetchFrankfurterTryRates(): Promise<{ usd: number; eur: number } | null> {
+  try {
+    const [usdRes, eurRes] = await Promise.all([
+      fetch('https://api.frankfurter.app/latest?from=USD&to=TRY', {
+        signal: AbortSignal.timeout(10000),
+      }),
+      fetch('https://api.frankfurter.app/latest?from=EUR&to=TRY', {
+        signal: AbortSignal.timeout(10000),
+      }),
+    ]);
+    if (!usdRes.ok || !eurRes.ok) return null;
+    const usdJson = (await usdRes.json()) as { rates?: { TRY?: number } };
+    const eurJson = (await eurRes.json()) as { rates?: { TRY?: number } };
+    const usd = usdJson.rates?.TRY;
+    const eur = eurJson.rates?.TRY;
+    if (!usd || !eur || usd <= 0 || eur <= 0) return null;
+    return { usd, eur };
+  } catch (err) {
+    console.warn(
+      '[exchange-rates] Frankfurter failed:',
+      err instanceof Error ? err.message : err
+    );
+    return null;
+  }
 }
 
 async function fetchTcmbRates(): Promise<CachedRates> {
   const now = Date.now();
-  if (ratesCache && now - ratesCache.fetchedAt < RATES_CACHE_MS) {
-    return ratesCache;
+  if (ratesCache) {
+    const age = now - ratesCache.fetchedAt;
+    const ttl =
+      ratesCache.source === 'varsayılan' ? FALLBACK_CACHE_MS : RATES_CACHE_MS;
+    if (age < ttl) return ratesCache;
   }
 
   try {
     const response = await fetch(TCMB_URL, {
-      signal: AbortSignal.timeout(8000),
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; AkgunTeknik-ERP/1.5)',
+        Accept: 'application/xml,text/xml,*/*',
+      },
+      signal: AbortSignal.timeout(15000),
     });
-    if (!response.ok) throw new Error('TCMB yanıt vermedi');
+    if (!response.ok) throw new Error(`TCMB HTTP ${response.status}`);
 
     const xml = await response.text();
     const usd = parseTcmbForexSelling(xml, 'USD');
@@ -337,7 +374,24 @@ async function fetchTcmbRates(): Promise<CachedRates> {
       fetchedAt: now,
     };
     return ratesCache;
-  } catch {
+  } catch (tcmbErr) {
+    console.warn(
+      '[exchange-rates] TCMB failed:',
+      tcmbErr instanceof Error ? tcmbErr.message : tcmbErr
+    );
+
+    const frank = await fetchFrankfurterTryRates();
+    if (frank) {
+      ratesCache = {
+        usd: frank.usd,
+        eur: frank.eur,
+        source: 'ECB',
+        updatedAt: new Date().toISOString(),
+        fetchedAt: now,
+      };
+      return ratesCache;
+    }
+
     ratesCache = {
       usd: FALLBACK_USD,
       eur: FALLBACK_EUR,

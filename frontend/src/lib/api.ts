@@ -2,7 +2,11 @@ import axios from 'axios';
 
 const envBase = import.meta.env.VITE_API_BASE as string | undefined;
 export const API_BASE =
-  envBase !== undefined ? envBase : 'http://localhost:3000';
+  typeof envBase === 'string' && envBase.trim().length > 0
+    ? envBase.replace(/\/$/, '')
+    : import.meta.env.DEV
+      ? 'http://localhost:3000'
+      : '';
 export const DEFAULT_USD = 46.39;
 export const DEFAULT_EUR = 53.628;
 /** @deprecated fetchExchangeRates veya useExchangeRates kullanın */
