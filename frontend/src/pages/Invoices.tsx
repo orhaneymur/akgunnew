@@ -33,12 +33,16 @@ type InvoicesProps = {
 
 export default function Invoices({
   initialFilter = 'ALL',
-  title = 'Fatura İşlemleri',
-  description = 'Kesilen faturaların listesi ve filtreleme',
+  title = 'Fatura Listesi',
+  description = 'Satış, alış ve iade faturaları — filtreli görünüm',
 }: InvoicesProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [filter, setFilter] = useState<FilterType>(initialFilter);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setFilter(initialFilter);
+  }, [initialFilter]);
 
   useEffect(() => {
     const load = async () => {
@@ -69,26 +73,26 @@ export default function Invoices({
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-violet-600 text-white">
-            <FileText className="w-5 h-5" />
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="shrink-0 rounded-xl bg-violet-600 p-2.5 text-white">
+            <FileText className="h-5 w-5" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">{title}</h1>
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-bold text-slate-900 sm:text-xl">{title}</h1>
             <p className="text-sm text-slate-500">{description}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
-          <Filter className="w-4 h-4 text-slate-400 ml-2" />
+        <div className="flex w-full items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm sm:w-auto">
+          <Filter className="ml-2 h-4 w-4 shrink-0 text-slate-400" />
           {filters.map((item) => (
             <button
               key={item.value}
               type="button"
               onClick={() => setFilter(item.value)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                 filter === item.value
                   ? item.value === 'ALIS'
                     ? 'bg-red-100 text-red-700'

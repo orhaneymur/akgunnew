@@ -14,12 +14,13 @@ import {
 } from 'lucide-react';
 import {
   API_BASE,
+  ensureArray,
   formatDate,
   formatMoney,
   invoiceTypeLabel,
   invoiceTypeStyles,
 } from '../lib/api';
-import type { PageId } from '../lib/navigation';
+import type { NavigateFn } from '../lib/navigation';
 
 type SafeBalance = {
   id: number;
@@ -70,7 +71,7 @@ export default function Dashboard({
   onNavigate,
 }: {
   refreshKey?: number;
-  onNavigate?: (page: PageId) => void;
+  onNavigate?: NavigateFn;
 }) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,7 +87,13 @@ export default function Dashboard({
           data: DashboardData;
         }>(`${API_BASE}/api/sales/dashboard`);
         if (response.data.success) {
-          setData(response.data.data);
+          const payload = response.data.data;
+          setData({
+            safeBalances: ensureArray(payload.safeBalances),
+            recentInvoices: ensureArray(payload.recentInvoices),
+            recentPayments: ensureArray(payload.recentPayments),
+            staffTurnover: ensureArray(payload.staffTurnover),
+          });
         }
       } catch {
         setError('Dashboard verileri yüklenemedi.');
@@ -120,46 +127,40 @@ export default function Dashboard({
 
   const quickActions = [
     {
-      id: 'sales' as PageId,
+      id: 'sales' as const,
       label: 'Satış Yap',
       description: 'F2 hızlı satış ekranı',
       icon: ShoppingCart,
       gradient: 'from-emerald-500 to-teal-600',
     },
     {
-      id: 'invoice-purchase' as PageId,
+      id: 'invoice-purchase' as const,
       label: 'Alış Yap',
       description: 'Tedarikçi alış faturası',
       icon: FileInput,
       gradient: 'from-rose-500 to-red-600',
     },
     {
-      id: 'sales-return' as PageId,
+      id: 'sales-return' as const,
       label: 'İade Al',
       description: 'Arızalı / sağlam iade',
       icon: RotateCcw,
       gradient: 'from-amber-500 to-orange-600',
     },
     {
-      id: 'product-create' as PageId,
-      label: 'Stok Kartı Oluştur',
+      id: 'product-create' as const,
+      label: 'Stok Kartı',
       description: 'Maliyet ve fiyat tanımı',
       icon: PlusCircle,
       gradient: 'from-indigo-500 to-violet-600',
     },
     {
-      id: 'purchase-list' as PageId,
-      label: 'Alış Listesi',
-      description: 'Alış faturaları',
-      icon: FileInput,
-      gradient: 'from-slate-600 to-slate-800',
-    },
-    {
-      id: 'sales-list' as PageId,
-      label: 'Satış Listesi',
-      description: 'Satış faturaları',
+      id: 'invoices' as const,
+      label: 'Fatura Listesi',
+      description: 'Satış / alış / iade',
       icon: FileOutput,
       gradient: 'from-sky-500 to-blue-600',
+      invoiceFilter: 'ALL' as const,
     },
   ];
 
@@ -176,15 +177,22 @@ export default function Dashboard({
       </div>
 
       {onNavigate && (
-        <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        <section className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-6">
           {quickActions.map((action) => {
             const Icon = action.icon;
             return (
               <button
                 key={action.id}
                 type="button"
-                onClick={() => onNavigate(action.id)}
-                className={`group relative overflow-hidden rounded-2xl bg-gradient-to-br ${action.gradient} p-5 text-left text-white shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all duration-200 min-h-[120px] flex flex-col justify-between`}
+                onClick={() =>
+                  onNavigate(
+                    action.id,
+                    'invoiceFilter' in action
+                      ? { invoiceFilter: action.invoiceFilter }
+                      : undefined
+                  )
+                }
+                className={`group relative overflow-hidden rounded-2xl bg-gradient-to-br ${action.gradient} p-4 sm:p-5 text-left text-white shadow-lg transition-all duration-200 hover:scale-[1.02] hover:shadow-xl min-h-[100px] sm:min-h-[120px] flex flex-col justify-between`}
               >
                 <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
                 <Icon className="w-7 h-7 opacity-90 group-hover:scale-110 transition-transform" />

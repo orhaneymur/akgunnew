@@ -10,6 +10,7 @@ import {
 import PaginationBar from '../components/PaginationBar';
 import {
   API_BASE,
+  ensureArray,
   formatMoney,
   getTotalPages,
   LIST_PAGE_SIZE,
@@ -71,8 +72,10 @@ export default function StockList() {
     };
   }, [search, page, loadProducts]);
 
+  const productStocks = (product: Product) => ensureArray(product.stocks);
+
   const totalStock = (product: Product) =>
-    product.stocks.reduce((sum, s) => sum + s.quantity, 0);
+    productStocks(product).reduce((sum, s) => sum + s.quantity, 0);
 
   const totalPages = getTotalPages(totalCount, LIST_PAGE_SIZE);
 
@@ -152,6 +155,7 @@ export default function StockList() {
               {!loading &&
                 products.map((product) => {
                   const isExpanded = expandedId === product.id;
+                  const stocks = productStocks(product);
                   const stockTotal = totalStock(product);
 
                   return (
@@ -163,7 +167,7 @@ export default function StockList() {
                         }
                       >
                         <td className="px-3 py-3 text-slate-400">
-                          {product.stocks.length > 1 ? (
+                          {stocks.length > 1 ? (
                             isExpanded ? (
                               <ChevronDown className="w-4 h-4" />
                             ) : (
@@ -196,12 +200,12 @@ export default function StockList() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-1.5">
-                            {product.stocks.length === 0 && (
+                            {stocks.length === 0 && (
                               <span className="text-xs text-slate-400">
                                 Stok yok
                               </span>
                             )}
-                            {product.stocks
+                            {stocks
                               .slice(0, isExpanded ? undefined : 2)
                               .map((stock) => (
                                 <span
@@ -212,22 +216,22 @@ export default function StockList() {
                                   {stock.branch.name}: {stock.quantity} adet
                                 </span>
                               ))}
-                            {!isExpanded && product.stocks.length > 2 && (
+                            {!isExpanded && stocks.length > 2 && (
                               <span className="text-xs text-slate-400">
-                                +{product.stocks.length - 2} şube
+                                +{stocks.length - 2} şube
                               </span>
                             )}
                           </div>
                         </td>
                       </tr>
-                      {isExpanded && product.stocks.length > 0 && (
+                      {isExpanded && stocks.length > 0 && (
                         <tr className="bg-slate-50/50">
                           <td colSpan={7} className="px-6 py-4">
                             <p className="text-xs font-semibold text-slate-500 uppercase mb-2">
                               Tüm Şube Stokları — {product.name}
                             </p>
                             <div className="flex flex-wrap gap-2">
-                              {product.stocks.map((stock) => (
+                              {stocks.map((stock) => (
                                 <span
                                   key={stock.id}
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-white border border-slate-200 text-slate-700 shadow-sm"

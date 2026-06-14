@@ -64,7 +64,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
         <form
           onSubmit={handleSubmit}
-          className="bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-2xl shadow-2xl p-8 space-y-5"
+          className="space-y-5 rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl backdrop-blur-xl sm:p-8"
         >
           <div>
             <label

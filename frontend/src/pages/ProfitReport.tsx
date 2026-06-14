@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { BarChart3, Percent, TrendingUp, Trophy } from 'lucide-react';
-import { API_BASE, formatMoney } from '../lib/api';
+import { API_BASE, ensureArray, formatMoney } from '../lib/api';
 
 type PeriodStats = {
   totalRevenue: number;
@@ -41,7 +41,12 @@ export default function ProfitReport() {
           data: ProfitReport;
         }>(`${API_BASE}/api/reports/profit`);
         if (response.data.success) {
-          setData(response.data.data);
+          const payload = response.data.data;
+          setData({
+            thisMonth: payload.thisMonth,
+            allTime: payload.allTime,
+            topProducts: ensureArray(payload.topProducts),
+          });
         }
       } catch {
         setError('Kâr raporu yüklenemedi.');
@@ -68,7 +73,7 @@ export default function ProfitReport() {
     );
   }
 
-  const { thisMonth, topProducts } = data;
+  const { thisMonth, topProducts = [] } = data;
   const monthLabel = new Intl.DateTimeFormat('tr-TR', {
     month: 'long',
     year: 'numeric',

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { AlertTriangle, Scale, Users, Wallet } from 'lucide-react';
-import { API_BASE, balanceStyles, formatMoney } from '../lib/api';
+import { API_BASE, balanceStyles, ensureArray, formatMoney } from '../lib/api';
 
 type BalanceCustomer = {
   id: number;
@@ -33,7 +33,13 @@ export default function CustomerBalances() {
           data: BalancesReport;
         }>(`${API_BASE}/api/reports/balances`);
         if (response.data.success) {
-          setData(response.data.data);
+          const payload = response.data.data;
+          setData({
+            totalReceivable: payload.totalReceivable ?? 0,
+            riskyTotalBalance: payload.riskyTotalBalance ?? 0,
+            debtorCount: payload.debtorCount ?? 0,
+            customers: ensureArray(payload.customers),
+          });
         }
       } catch {
         setError('Bakiye raporu yüklenemedi.');

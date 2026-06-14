@@ -1,193 +1,175 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
 datasource db {
   provider = "mysql"
 }
 
-model branch {
-  id           Int            @id @default(autoincrement())
-  name         String
-  type         branch_type    @default(STORE)
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime
-  invoice      invoice[]
-  productstock productstock[]
-  safe         safe[]
+generator client {
+  provider = "prisma-client-js"
 }
 
-model brandmodel {
+model User {
+  id        Int       @id @default(autoincrement())
+  name      String
+  email     String    @unique
+  password  String
+  role      String    @default("staff")
+  invoices  Invoice[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Branch {
+  id        Int            @id @default(autoincrement())
+  name      String
+  type      BranchType     @default(STORE)
+  stocks    ProductStock[]
+  safes     Safe[]
+  invoices  Invoice[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+enum BranchType {
+  STORE
+  WAREHOUSE
+}
+
+model Category {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  brandModels BrandModel[]
+  products    Product[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model BrandModel {
   id         Int       @id @default(autoincrement())
   name       String
   categoryId Int?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  products   Product[]
   createdAt  DateTime  @default(now())
-  updatedAt  DateTime
-  category   category? @relation(fields: [categoryId], references: [id], map: "BrandModel_categoryId_fkey")
-  product    product[]
+  updatedAt  DateTime  @updatedAt
 
-  @@unique([name, categoryId], map: "BrandModel_name_categoryId_key")
-  @@index([categoryId], map: "BrandModel_categoryId_fkey")
+  @@unique([name, categoryId])
 }
 
-model category {
-  id         Int          @id @default(autoincrement())
-  name       String       @unique(map: "Category_name_key")
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime
-  brandmodel brandmodel[]
-  product    product[]
+model Product {
+  id           Int            @id @default(autoincrement())
+  sku          String         @unique
+  barcode      String?        @unique
+  name         String
+  costPrice    Float          @default(0.0)
+  priceTl      Float          @default(0.0)
+  priceUsd     Float          @default(0.0)
+  categoryId   Int?
+  brandModelId Int?
+  category     Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brandModel   BrandModel?    @relation(fields: [brandModelId], references: [id], onDelete: SetNull)
+  stocks       ProductStock[]
+  invoiceItems InvoiceItem[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 }
 
-model customer {
+model ProductStock {
+  id        Int     @id @default(autoincrement())
+  productId Int
+  branchId  Int
+  quantity  Float   @default(0.0)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, branchId])
+}
+
+model Customer {
   id            Int           @id @default(autoincrement())
-  code          String        @unique(map: "Customer_code_key")
+  code          String        @unique
   name          String
-  creditLimit   Float         @default(0)
-  balance       Float         @default(0)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime
-  address       String?       @db.Text
-  city          String?
   contactPerson String?
+  address       String?       @db.Text
   district      String?
+  city          String?
   email         String?
   phone         String?
-  taxNumber     String?
   taxOffice     String?
-  invoice       invoice[]
-  transaction   transaction[]
+  taxNumber     String?
+  creditLimit   Float         @default(0.0)
+  balance       Float         @default(0.0)
+  invoices      Invoice[]
+  transactions  Transaction[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 }
 
-model invoice {
+model Safe {
+  id           Int           @id @default(autoincrement())
+  branchId     Int
+  name         String
+  currency     String        @default("TRY")
+  balance      Float         @default(0.0)
+  branch       Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  invoices     Invoice[]
+  transactions Transaction[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Invoice {
   id              Int           @id @default(autoincrement())
-  invoiceNo       String        @unique(map: "Invoice_invoiceNo_key")
+  invoiceNo       String        @unique
+  type            String        @default("SATIS")
   customerId      Int
   safeId          Int
   branchId        Int
-  paymentMethod   String        @default("Nakit")
-  exchangeRate    Float         @default(1)
-  deliveryType    String        @default("Mağazadan Teslim")
-  shippingCompany String?
-  trackingNumber  String?
-  totalAmountTl   Float         @default(0)
-  totalAmountUsd  Float         @default(0)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime
-  type            String        @default("SATIS")
   userId          Int?
+  paymentMethod   String        @default("Nakit")
+  paymentType     String?
+  exchangeRate    Float         @default(1.0)
+  deliveryType    String        @default("Mağazadan Teslim")
   dueDate         DateTime?
   isPreOrder      Boolean       @default(false)
-  orderNotes      String?       @db.Text
-  paymentType     String?
   processedBy     String?
-  branch          branch        @relation(fields: [branchId], references: [id], map: "Invoice_branchId_fkey")
-  customer        customer      @relation(fields: [customerId], references: [id], map: "Invoice_customerId_fkey")
-  safe            safe          @relation(fields: [safeId], references: [id], map: "Invoice_safeId_fkey")
-  user            user?         @relation(fields: [userId], references: [id], map: "Invoice_userId_fkey")
-  invoiceitem     invoiceitem[]
-
-  @@index([branchId], map: "Invoice_branchId_fkey")
-  @@index([customerId], map: "Invoice_customerId_fkey")
-  @@index([safeId], map: "Invoice_safeId_fkey")
-  @@index([userId], map: "Invoice_userId_fkey")
+  orderNotes      String?       @db.Text
+  shippingCompany String?
+  trackingNumber  String?
+  totalAmountTl   Float         @default(0.0)
+  totalAmountUsd  Float         @default(0.0)
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  safe            Safe          @relation(fields: [safeId], references: [id])
+  branch          Branch        @relation(fields: [branchId], references: [id])
+  user            User?         @relation(fields: [userId], references: [id])
+  items           InvoiceItem[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 }
 
-model invoiceitem {
+enum TransactionType {
+  GIRIS
+  CIKIS
+}
+
+model Transaction {
+  id          Int             @id @default(autoincrement())
+  safeId      Int
+  customerId  Int?
+  type        TransactionType
+  amount      Float
+  description String
+  safe        Safe            @relation(fields: [safeId], references: [id])
+  customer    Customer?       @relation(fields: [customerId], references: [id])
+  createdAt   DateTime        @default(now())
+}
+
+model InvoiceItem {
   id              Int     @id @default(autoincrement())
   invoiceId       Int
   productId       Int
   quantity        Float
   unitPrice       Float
-  totalPrice      Float
   discountPercent Float   @default(0)
-  invoice         invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade, map: "InvoiceItem_invoiceId_fkey")
-  product         product @relation(fields: [productId], references: [id], map: "InvoiceItem_productId_fkey")
-
-  @@index([invoiceId], map: "InvoiceItem_invoiceId_fkey")
-  @@index([productId], map: "InvoiceItem_productId_fkey")
-}
-
-model product {
-  id           Int            @id @default(autoincrement())
-  sku          String         @unique(map: "Product_sku_key")
-  barcode      String?        @unique(map: "Product_barcode_key")
-  name         String
-  priceTl      Float          @default(0)
-  priceUsd     Float          @default(0)
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime
-  brandModelId Int?
-  categoryId   Int?
-  costPrice    Float          @default(0)
-  invoiceitem  invoiceitem[]
-  brandmodel   brandmodel?    @relation(fields: [brandModelId], references: [id], map: "Product_brandModelId_fkey")
-  category     category?      @relation(fields: [categoryId], references: [id], map: "Product_categoryId_fkey")
-  productstock productstock[]
-
-  @@index([brandModelId], map: "Product_brandModelId_fkey")
-  @@index([categoryId], map: "Product_categoryId_fkey")
-}
-
-model productstock {
-  id        Int     @id @default(autoincrement())
-  productId Int
-  branchId  Int
-  quantity  Float   @default(0)
-  branch    branch  @relation(fields: [branchId], references: [id], onDelete: Cascade, map: "ProductStock_branchId_fkey")
-  product   product @relation(fields: [productId], references: [id], onDelete: Cascade, map: "ProductStock_productId_fkey")
-
-  @@unique([productId, branchId], map: "ProductStock_productId_branchId_key")
-  @@index([branchId], map: "ProductStock_branchId_fkey")
-}
-
-model safe {
-  id          Int           @id @default(autoincrement())
-  branchId    Int
-  name        String
-  currency    String        @default("TRY")
-  balance     Float         @default(0)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime
-  invoice     invoice[]
-  branch      branch        @relation(fields: [branchId], references: [id], onDelete: Cascade, map: "Safe_branchId_fkey")
-  transaction transaction[]
-
-  @@index([branchId], map: "Safe_branchId_fkey")
-}
-
-model transaction {
-  id          Int              @id @default(autoincrement())
-  safeId      Int
-  customerId  Int?
-  type        transaction_type
-  amount      Float
-  description String
-  createdAt   DateTime         @default(now())
-  customer    customer?        @relation(fields: [customerId], references: [id], map: "Transaction_customerId_fkey")
-  safe        safe             @relation(fields: [safeId], references: [id], map: "Transaction_safeId_fkey")
-
-  @@index([customerId], map: "Transaction_customerId_fkey")
-  @@index([safeId], map: "Transaction_safeId_fkey")
-}
-
-model user {
-  id        Int       @id @default(autoincrement())
-  name      String
-  email     String    @unique(map: "User_email_key")
-  password  String
-  role      String    @default("staff")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime
-  invoice   invoice[]
-}
-
-enum branch_type {
-  STORE
-  WAREHOUSE
-}
-
-enum transaction_type {
-  GIRIS
-  CIKIS
+  totalPrice      Float
+  invoice         Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product         Product @relation(fields: [productId], references: [id])
 }

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { RotateCcw, Save, Search, ShoppingCart, X } from 'lucide-react';
-import { API_BASE, EXCHANGE_RATE, formatMoney } from '../lib/api';
+import {
+  API_BASE,
+  EXCHANGE_RATE,
+  ensureArray,
+  formatMoney,
+  type PaginatedListResponse,
+} from '../lib/api';
 
 type Branch = { id: number; name: string; type: string };
 type Safe = {
@@ -90,19 +96,33 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
 
   const loadInitData = useCallback(async () => {
     try {
-      const response = await axios.get<{ success: boolean; data: InitData }>(
-        `${API_BASE}/api/sales/init`
-      );
-      if (response.data.success) {
-        const data = response.data.data;
-        setInitData(data);
-        if (data.branches.length > 0) {
-          setSelectedBranch(data.branches[0].id);
-          const safe = data.safes.find((s) => s.branchId === data.branches[0].id);
+      const [initRes, customersRes] = await Promise.all([
+        axios.get<{
+          success: boolean;
+          data: { branches: Branch[]; safes: Safe[] };
+        }>(`${API_BASE}/api/sales/init`),
+        axios.get<PaginatedListResponse<Customer>>(
+          `${API_BASE}/api/customers`,
+          { params: { page: 1, limit: 200 } }
+        ),
+      ]);
+
+      if (initRes.data.success) {
+        const branches = ensureArray(initRes.data.data.branches);
+        const safes = ensureArray(initRes.data.data.safes);
+        const customers = customersRes.data.success
+          ? ensureArray(customersRes.data.data)
+          : [];
+
+        setInitData({ branches, safes, customers });
+
+        if (branches.length > 0) {
+          setSelectedBranch(branches[0].id);
+          const safe = safes.find((s) => s.branchId === branches[0].id);
           if (safe) setSelectedSafe(safe.id);
         }
-        if (data.customers.length > 0) {
-          setSelectedCustomer(data.customers[0].id);
+        if (customers.length > 0) {
+          setSelectedCustomer(customers[0].id);
         }
       }
     } catch {

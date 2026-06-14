@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { FolderTree, Layers, Plus, Tag } from 'lucide-react';
-import { API_BASE } from '../lib/api';
+import { API_BASE, ensureArray } from '../lib/api';
 
 type BrandModel = {
   id: number;
@@ -38,8 +38,8 @@ export default function CategoryManager() {
           `${API_BASE}/api/settings/brand-models`
         ),
       ]);
-      if (catRes.data.success) setCategories(catRes.data.data);
-      if (brandRes.data.success) setBrandModels(brandRes.data.data);
+      if (catRes.data.success) setCategories(ensureArray(catRes.data.data));
+      if (brandRes.data.success) setBrandModels(ensureArray(brandRes.data.data));
     } finally {
       setLoading(false);
     }
@@ -154,7 +154,7 @@ export default function CategoryManager() {
                       {cat.name}
                     </td>
                     <td className="px-4 py-3 text-sm text-right text-slate-600">
-                      {cat._count?.brandModels ?? cat.brandModels.length}
+                      {cat._count?.brandModels ?? ensureArray(cat.brandModels).length}
                     </td>
                     <td className="px-4 py-3 text-sm text-right text-slate-600">
                       {cat._count?.products ?? 0}

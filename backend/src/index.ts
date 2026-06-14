@@ -59,7 +59,57 @@ async function previewNextInvoiceNo(): Promise<string> {
   return `${prefix}${String(sequence).padStart(4, '0')}`;
 }
 
+async function generatePurchaseInvoiceNo(
+  tx: Prisma.TransactionClient
+): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `AF${year}`;
+
+  const lastInvoice = await tx.invoice.findFirst({
+    where: { invoiceNo: { startsWith: prefix } },
+    orderBy: { invoiceNo: 'desc' },
+    select: { invoiceNo: true },
+  });
+
+  let sequence = 1;
+  if (lastInvoice) {
+    const parsed = Number.parseInt(lastInvoice.invoiceNo.slice(prefix.length), 10);
+    if (!Number.isNaN(parsed)) {
+      sequence = parsed + 1;
+    }
+  }
+
+  return `${prefix}${String(sequence).padStart(4, '0')}`;
+}
+
+async function previewNextPurchaseInvoiceNo(): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `AF${year}`;
+
+  const lastInvoice = await prisma.invoice.findFirst({
+    where: { invoiceNo: { startsWith: prefix } },
+    orderBy: { invoiceNo: 'desc' },
+    select: { invoiceNo: true },
+  });
+
+  let sequence = 1;
+  if (lastInvoice) {
+    const parsed = Number.parseInt(lastInvoice.invoiceNo.slice(prefix.length), 10);
+    if (!Number.isNaN(parsed)) {
+      sequence = parsed + 1;
+    }
+  }
+
+  return `${prefix}${String(sequence).padStart(4, '0')}`;
+}
+
 function calcLineTotalUsd(item: StoreItem): number {
+  const discount = item.discountPercent ?? 0;
+  const base = item.quantity * item.unitPrice;
+  return base * (1 - discount / 100);
+}
+
+function calcLineTotalTl(item: StoreItem): number {
   const discount = item.discountPercent ?? 0;
   const base = item.quantity * item.unitPrice;
   return base * (1 - discount / 100);
@@ -421,6 +471,167 @@ app.get('/api/sales/init', async () => {
     data: { branches, safes, personnels, nextInvoiceNo },
     message: 'Sales init data retrieved successfully.',
   };
+});
+
+app.get('/api/purchases/init', async () => {
+  const [branches, safes, personnels, nextInvoiceNo] = await Promise.all([
+    prisma.branch.findMany({ orderBy: { name: 'asc' } }),
+    prisma.safe.findMany({
+      include: { branch: { select: { id: true, name: true, type: true } } },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.user.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+    previewNextPurchaseInvoiceNo(),
+  ]);
+
+  return {
+    success: true,
+    data: { branches, safes, personnels, nextInvoiceNo },
+    message: 'Purchase init data retrieved successfully.',
+  };
+});
+
+app.post<{
+  Body: {
+    customerId: number;
+    branchId: number;
+    safeId: number;
+    paymentMethod: string;
+    paymentType?: string;
+    exchangeRate?: number;
+    dueDate?: string;
+    invoiceDate?: string;
+    processedBy?: string;
+    orderNotes?: string;
+    items: StoreItem[];
+  };
+}>('/api/purchases/store', async (request, reply) => {
+  const {
+    customerId,
+    branchId,
+    safeId,
+    paymentMethod,
+    paymentType,
+    exchangeRate,
+    dueDate,
+    invoiceDate,
+    processedBy,
+    orderNotes,
+    items,
+  } = request.body;
+
+  if (!customerId || !branchId || !safeId || !paymentMethod || !items?.length) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Eksik veya geçersiz alış faturası bilgileri.',
+      errors: null,
+    });
+  }
+
+  const rate = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+  const totalAmountTl = items.reduce(
+    (sum, item) => sum + calcLineTotalTl(item),
+    0
+  );
+  const totalAmountUsd = totalAmountTl / rate;
+
+  try {
+    const invoice = await prisma.$transaction(async (tx) => {
+      const invoiceNo = await generatePurchaseInvoiceNo(tx);
+      const stockBranchId = await getDepotBranchId(tx, 'MERKEZ');
+
+      const matchedUser = processedBy
+        ? await tx.user.findFirst({ where: { name: processedBy } })
+        : null;
+
+      const createdInvoice = await tx.invoice.create({
+        data: {
+          invoiceNo,
+          type: 'ALIS',
+          customerId,
+          safeId,
+          branchId,
+          userId: matchedUser?.id,
+          paymentMethod,
+          paymentType: paymentType ?? null,
+          exchangeRate: rate,
+          deliveryType: 'Mağazadan Teslim',
+          dueDate: dueDate ? new Date(dueDate) : null,
+          processedBy: processedBy ?? null,
+          orderNotes: orderNotes ?? null,
+          totalAmountTl,
+          totalAmountUsd,
+          ...(invoiceDate ? { createdAt: new Date(invoiceDate) } : {}),
+          items: {
+            create: items.map((item) => {
+              const lineTotal = calcLineTotalTl(item);
+              return {
+                productId: item.productId,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                discountPercent: item.discountPercent ?? 0,
+                totalPrice: lineTotal,
+              };
+            }),
+          },
+        },
+        include: { items: true },
+      });
+
+      for (const item of items) {
+        await incrementStock(tx, item.productId, stockBranchId, item.quantity);
+
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            costPrice: item.unitPrice,
+            priceUsd: item.unitPrice > 0 ? item.unitPrice / rate : 0,
+          },
+        });
+      }
+
+      if (isCashLikePayment(paymentMethod)) {
+        await tx.safe.update({
+          where: { id: safeId },
+          data: { balance: { decrement: totalAmountTl } },
+        });
+
+        await tx.transaction.create({
+          data: {
+            safeId,
+            customerId,
+            type: 'CIKIS',
+            amount: totalAmountTl,
+            description: `${invoiceNo} alış ödemesi (${paymentMethod})`,
+          },
+        });
+      } else if (paymentMethod === 'Cari') {
+        await tx.customer.update({
+          where: { id: customerId },
+          data: { balance: { decrement: totalAmountTl } },
+        });
+      }
+
+      return createdInvoice;
+    });
+
+    return reply.status(201).send({
+      success: true,
+      data: invoice,
+      message: 'Purchase invoice created successfully.',
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Alış faturası kaydedilemedi.';
+    return reply.status(500).send({
+      success: false,
+      message,
+      errors: null,
+    });
+  }
 });
 
 app.get<{ Querystring: { search?: string; page?: string; limit?: string; take?: string; skip?: string } }>(

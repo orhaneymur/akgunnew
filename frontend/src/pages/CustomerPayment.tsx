@@ -4,6 +4,7 @@ import { ArrowDownLeft, ArrowUpRight, Wallet } from 'lucide-react';
 import {
   API_BASE,
   balanceStyles,
+  ensureArray,
   formatMoney,
   type Customer,
   type PaginatedListResponse,
@@ -42,20 +43,20 @@ export default function CustomerPayment({
       ]);
 
       if (customersRes.data.success) {
-        setCustomers(customersRes.data.data);
-        if (customersRes.data.data.length > 0) {
+        const customerList = ensureArray(customersRes.data.data);
+        setCustomers(customerList);
+        if (customerList.length > 0) {
           setSelectedCustomer((prev) =>
-            prev === '' ? customersRes.data.data[0].id : prev
+            prev === '' ? customerList[0].id : prev
           );
         }
       }
 
       if (initRes.data.success) {
-        setSafes(initRes.data.data.safes);
-        if (initRes.data.data.safes.length > 0) {
-          setSelectedSafe((prev) =>
-            prev === '' ? initRes.data.data.safes[0].id : prev
-          );
+        const safeList = ensureArray(initRes.data.data.safes);
+        setSafes(safeList);
+        if (safeList.length > 0) {
+          setSelectedSafe((prev) => (prev === '' ? safeList[0].id : prev));
         }
       }
     } catch {

@@ -19,6 +19,11 @@ export type PaginatedListResponse<T> = {
 /** @deprecated Eski meta yapısı — PaginatedListResponse kullanın */
 export type PaginatedResponse<T> = PaginatedListResponse<T>;
 
+/** API'den gelmeyen veya eksik dizi alanlarını güvenli şekilde normalize eder */
+export function ensureArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export function getTotalPages(totalCount: number, limit: number): number {
   if (totalCount <= 0 || limit <= 0) return 0;
   return Math.ceil(totalCount / limit);

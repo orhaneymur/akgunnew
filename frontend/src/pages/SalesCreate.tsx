@@ -4,6 +4,7 @@ import { Printer, Save, Search, ShoppingCart, X } from 'lucide-react';
 import {
   API_BASE,
   EXCHANGE_RATE,
+  ensureArray,
   formatMoney,
   type Customer,
   type PaginatedListResponse,
@@ -164,21 +165,30 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
       );
       if (response.data.success) {
         const data = response.data.data;
-        setInitData(data);
+        const branches = ensureArray(data.branches);
+        const safes = ensureArray(data.safes);
+        const personnels = ensureArray(data.personnels);
+
+        setInitData({
+          branches,
+          safes,
+          personnels,
+          nextInvoiceNo: data.nextInvoiceNo ?? '',
+        });
 
         const branch =
-          data.branches.find((b) => b.type === 'STORE') ??
-          data.branches.find((b) => !b.name.includes('DEPO')) ??
-          data.branches[0];
+          branches.find((b) => b.type === 'STORE') ??
+          branches.find((b) => !b.name.includes('DEPO')) ??
+          branches[0];
 
         if (branch) {
           setSelectedBranch(branch.id);
-          const branchSafe = data.safes.find((s) => s.branchId === branch.id);
+          const branchSafe = safes.find((s) => s.branchId === branch.id);
           if (branchSafe) setSelectedSafe(branchSafe.id);
         }
 
-        if (data.personnels.length > 0 && !processedBy) {
-          setProcessedBy(data.personnels[0].name);
+        if (personnels.length > 0 && !processedBy) {
+          setProcessedBy(personnels[0].name);
         }
       }
     } catch {
@@ -907,7 +917,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
         </section>
 
         {/* Fintech Özet Paneli */}
-        <aside className="xl:col-span-1 bg-gradient-to-b from-slate-50 to-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4 sticky top-4 h-fit">
+        <aside className="h-fit space-y-4 rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 shadow-sm sm:p-5 xl:col-span-1 xl:sticky xl:top-4">
           <h2 className="font-bold text-slate-800 text-center border-b border-slate-200 pb-2">
             Fatura Özeti
           </h2>
@@ -997,7 +1007,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
             type="button"
             onClick={handleSubmit}
             disabled={submitting || cart.length === 0}
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 disabled:from-slate-400 disabled:to-slate-400 text-white font-black uppercase tracking-widest py-5 px-6 rounded-2xl shadow-xl shadow-emerald-500/40 transition-all text-base border-2 border-emerald-400 print:hidden"
+            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 disabled:from-slate-400 disabled:to-slate-400 text-white font-black uppercase tracking-wide py-4 px-4 sm:py-5 sm:px-6 rounded-2xl shadow-xl shadow-emerald-500/40 transition-all text-sm sm:text-base border-2 border-emerald-400 print:hidden"
           >
             <Save className="w-6 h-6" />
             {submitting ? 'Kaydediliyor...' : 'KAYDET'}
