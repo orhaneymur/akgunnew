@@ -1,13 +1,11 @@
 # MySQL 8.0 — Akgün Teknik ERP (K3s)
-# Uygulama: kubectl apply -f k8s/mysql-deployment.yaml
+# Tek komut: kubectl apply -f k8s/
+# Harici Secret/ConfigMap gerekmez — tüm değerler aşağıda gömülüdür.
 #
-# Secret (bir kez):
-# kubectl create secret generic akgunteknik-mysql-secrets \
-#   --from-literal=MYSQL_ROOT_PASSWORD='GÜÇLÜ_ŞİFRE' \
-#   --from-literal=MYSQL_DATABASE='akgunteknik'
-#
-# Backend DATABASE_URL örneği:
-# mysql://root:GÜÇLÜ_ŞİFRE@akgunteknik-mysql:3306/akgunteknik
+# Gömülü kimlik bilgileri:
+#   MYSQL_ROOT_PASSWORD = akgunteknik123
+#   MYSQL_DATABASE      = akgunteknik
+#   DATABASE_URL (backend) = mysql://root:akgunteknik123@akgunteknik-mysql:3306/akgunteknik
 
 ---
 apiVersion: v1
@@ -55,34 +53,26 @@ spec:
             - --collation-server=utf8mb4_unicode_ci
           env:
             - name: MYSQL_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: akgunteknik-mysql-secrets
-                  key: MYSQL_ROOT_PASSWORD
+              value: akgunteknik123
             - name: MYSQL_DATABASE
-              valueFrom:
-                secretKeyRef:
-                  name: akgunteknik-mysql-secrets
-                  key: MYSQL_DATABASE
+              value: akgunteknik
           volumeMounts:
             - name: mysql-data
               mountPath: /var/lib/mysql
           readinessProbe:
             exec:
               command:
-                - mysqladmin
-                - ping
-                - -h
-                - localhost
+                - sh
+                - -c
+                - mysqladmin ping -h localhost -uroot -p"$MYSQL_ROOT_PASSWORD"
             initialDelaySeconds: 20
             periodSeconds: 10
           livenessProbe:
             exec:
               command:
-                - mysqladmin
-                - ping
-                - -h
-                - localhost
+                - sh
+                - -c
+                - mysqladmin ping -h localhost -uroot -p"$MYSQL_ROOT_PASSWORD"
             initialDelaySeconds: 45
             periodSeconds: 20
           resources:

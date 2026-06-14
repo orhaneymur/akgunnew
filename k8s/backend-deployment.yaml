@@ -34,10 +34,7 @@ spec:
             - name: PORT
               value: "3000"
             - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: akgunteknik-secrets
-                  key: DATABASE_URL
+              value: mysql://root:akgunteknik123@akgunteknik-mysql:3306/akgunteknik
           readinessProbe:
             httpGet:
               path: /api/sales/dashboard
