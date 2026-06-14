@@ -42,6 +42,5 @@ COPY --from=builder /app/dist ./dist
 
 EXPOSE 3000
 
-# Prisma'nın k8s ağında db push yapabilmesi için geçici olarak yetkiyi koruyoruz veya root kalıyoruz
-# CMD içinde push ve start işlemlerini sırayla birbirine bağlıyoruz:
-CMD ["sh", "-c", "npx prisma db push && node dist/index.js"]
+# Canlı DB'de db push kullanmayın — migration'lar import/migrate ile bir kez uygulanır
+CMD ["node", "dist/index.js"]

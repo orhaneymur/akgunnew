@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 const envBase = import.meta.env.VITE_API_BASE as string | undefined;
 export const API_BASE =
   envBase !== undefined ? envBase : 'http://localhost:3000';
@@ -6,6 +8,17 @@ export const EUR_RATE = 53.628;
 export const AUTH_STORAGE_KEY = 'isLoggedIn';
 export const AUTH_TOKEN_KEY = 'authToken';
 export const LIST_PAGE_SIZE = 50;
+
+/** Login sonrası JWT'yi tüm axios isteklerine ekler */
+export function setupAuthInterceptor() {
+  axios.interceptors.request.use((config) => {
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  });
+}
 
 export type PaginatedListResponse<T> = {
   success: boolean;
