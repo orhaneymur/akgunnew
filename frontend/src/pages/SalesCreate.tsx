@@ -3,7 +3,8 @@ import axios from 'axios';
 import { Printer, Save, Search, ShoppingCart, X } from 'lucide-react';
 import {
   API_BASE,
-  EXCHANGE_RATE,
+  DEFAULT_USD,
+  fetchExchangeRates,
   ensureArray,
   formatMoney,
   type Customer,
@@ -101,7 +102,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
   );
   const [dueDate, setDueDate] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
-  const [exchangeRate, setExchangeRate] = useState(EXCHANGE_RATE);
+  const [exchangeRate, setExchangeRate] = useState(DEFAULT_USD);
   const [isPreOrder, setIsPreOrder] = useState(false);
   const [shouldPrint, setShouldPrint] = useState(false);
   const [processedBy, setProcessedBy] = useState('');
@@ -199,6 +200,10 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
   useEffect(() => {
     loadInitData();
   }, [loadInitData]);
+
+  useEffect(() => {
+    fetchExchangeRates().then((r) => setExchangeRate(r.usd));
+  }, []);
 
   useEffect(() => {
     if (selectedBranch === '') return;

@@ -280,6 +280,247 @@ function buildCustomerSearchWhere(search: string): Prisma.CustomerWhereInput {
   };
 }
 
+const FALLBACK_USD = 46.39;
+const FALLBACK_EUR = 53.628;
+const TCMB_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml';
+const RATES_CACHE_MS = 15 * 60 * 1000;
+
+type CachedRates = {
+  usd: number;
+  eur: number;
+  source: string;
+  updatedAt: string;
+  fetchedAt: number;
+};
+
+let ratesCache: CachedRates | null = null;
+
+function parseTcmbForexSelling(xml: string, currencyCode: string): number | null {
+  const blockMatch = xml.match(
+    new RegExp(
+      `<Currency[^>]*Kod="${currencyCode}"[\\s\\S]*?</Currency>`,
+      'i'
+    )
+  );
+  if (!blockMatch) return null;
+  const sellingMatch = blockMatch[0].match(
+    /<ForexSelling>([\d,]+)<\/ForexSelling>/i
+  );
+  if (!sellingMatch) return null;
+  const value = Number.parseFloat(sellingMatch[1].replace(',', '.'));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+async function fetchTcmbRates(): Promise<CachedRates> {
+  const now = Date.now();
+  if (ratesCache && now - ratesCache.fetchedAt < RATES_CACHE_MS) {
+    return ratesCache;
+  }
+
+  try {
+    const response = await fetch(TCMB_URL, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) throw new Error('TCMB yanıt vermedi');
+
+    const xml = await response.text();
+    const usd = parseTcmbForexSelling(xml, 'USD');
+    const eur = parseTcmbForexSelling(xml, 'EUR');
+
+    if (!usd || !eur) throw new Error('TCMB parse hatası');
+
+    ratesCache = {
+      usd,
+      eur,
+      source: 'TCMB',
+      updatedAt: new Date().toISOString(),
+      fetchedAt: now,
+    };
+    return ratesCache;
+  } catch {
+    ratesCache = {
+      usd: FALLBACK_USD,
+      eur: FALLBACK_EUR,
+      source: 'varsayılan',
+      updatedAt: new Date().toISOString(),
+      fetchedAt: now,
+    };
+    return ratesCache;
+  }
+}
+
+async function buildAnalyticsReport() {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+  const salesInvoices = await prisma.invoice.findMany({
+    where: {
+      type: 'SATIS',
+      userId: { not: null },
+      createdAt: { gte: startOfYear },
+    },
+    select: {
+      userId: true,
+      totalAmountTl: true,
+      createdAt: true,
+      user: { select: { id: true, name: true } },
+    },
+  });
+
+  type TurnoverEntry = {
+    userId: number;
+    userName: string;
+    daily: number;
+    monthly: number;
+    yearly: number;
+  };
+
+  const turnoverMap = new Map<number, TurnoverEntry>();
+
+  for (const invoice of salesInvoices) {
+    if (!invoice.userId || !invoice.user) continue;
+
+    const entry =
+      turnoverMap.get(invoice.userId) ??
+      ({
+        userId: invoice.userId,
+        userName: invoice.user.name,
+        daily: 0,
+        monthly: 0,
+        yearly: 0,
+      } satisfies TurnoverEntry);
+
+    entry.yearly += invoice.totalAmountTl;
+    if (invoice.createdAt >= startOfMonth) entry.monthly += invoice.totalAmountTl;
+    if (invoice.createdAt >= startOfDay) entry.daily += invoice.totalAmountTl;
+    turnoverMap.set(invoice.userId, entry);
+  }
+
+  const staffTurnover = Array.from(turnoverMap.values()).sort((a, b) =>
+    a.userName.localeCompare(b.userName, 'tr')
+  );
+
+  const sevenDaysAgo = new Date(startOfDay);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const [chartSales, chartPurchases, topProductRows, lowStockRows] =
+    await Promise.all([
+      prisma.invoice.findMany({
+        where: { type: 'SATIS', createdAt: { gte: sevenDaysAgo } },
+        select: { totalAmountTl: true, createdAt: true },
+      }),
+      prisma.invoice.findMany({
+        where: { type: 'SATIS', createdAt: { gte: sixMonthsAgo } },
+        select: { totalAmountTl: true, createdAt: true },
+      }),
+      prisma.invoiceItem.findMany({
+        where: {
+          invoice: { type: 'SATIS', createdAt: { gte: thirtyDaysAgo } },
+        },
+        select: {
+          quantity: true,
+          product: { select: { name: true } },
+        },
+      }),
+      prisma.branch
+        .findFirst({ where: { name: 'MERKEZ_DEPO' }, select: { id: true } })
+        .then(async (branch) => {
+          if (!branch) return [];
+          return prisma.productStock.findMany({
+            where: { branchId: branch.id, quantity: { lte: 5 } },
+            include: {
+              product: { select: { id: true, sku: true, name: true } },
+            },
+            orderBy: { quantity: 'asc' },
+            take: 15,
+          });
+        }),
+    ]);
+
+  const dailySalesMap = new Map<string, number>();
+  for (let i = 0; i < 7; i += 1) {
+    const d = new Date(sevenDaysAgo);
+    d.setDate(d.getDate() + i);
+    dailySalesMap.set(d.toISOString().slice(0, 10), 0);
+  }
+  for (const inv of chartSales) {
+    const key = inv.createdAt.toISOString().slice(0, 10);
+    if (dailySalesMap.has(key)) {
+      dailySalesMap.set(key, (dailySalesMap.get(key) ?? 0) + inv.totalAmountTl);
+    }
+  }
+  const dailySales = Array.from(dailySalesMap.entries()).map(([date, total]) => ({
+    date,
+    label: new Date(`${date}T12:00:00`).toLocaleDateString('tr-TR', {
+      weekday: 'short',
+      day: 'numeric',
+    }),
+    total,
+  }));
+
+  const monthlySalesMap = new Map<string, number>();
+  for (let i = 0; i < 6; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    monthlySalesMap.set(key, 0);
+  }
+  for (const inv of chartPurchases) {
+    const key = `${inv.createdAt.getFullYear()}-${String(inv.createdAt.getMonth() + 1).padStart(2, '0')}`;
+    if (monthlySalesMap.has(key)) {
+      monthlySalesMap.set(
+        key,
+        (monthlySalesMap.get(key) ?? 0) + inv.totalAmountTl
+      );
+    }
+  }
+  const monthlySales = Array.from(monthlySalesMap.entries()).map(
+    ([month, total]) => ({
+      month,
+      label: new Date(`${month}-01T12:00:00`).toLocaleDateString('tr-TR', {
+        month: 'short',
+        year: '2-digit',
+      }),
+      total,
+    })
+  );
+
+  const productQtyMap = new Map<string, number>();
+  for (const row of topProductRows) {
+    const name = row.product.name;
+    productQtyMap.set(name, (productQtyMap.get(name) ?? 0) + row.quantity);
+  }
+  const topProducts = Array.from(productQtyMap.entries())
+    .map(([name, quantity]) => ({ name, quantity }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 10);
+
+  const lowStock = lowStockRows.map((row) => ({
+    id: row.product.id,
+    sku: row.product.sku,
+    name: row.product.name,
+    quantity: row.quantity,
+  }));
+
+  return {
+    staffTurnover,
+    charts: {
+      dailySales,
+      monthlySales,
+      topProducts,
+      staffComparison: staffTurnover.map((s) => ({
+        name: s.userName,
+        monthly: s.monthly,
+      })),
+    },
+    lowStock,
+  };
+}
+
 app.register(cors, { origin: true });
 
 const JWT_SECRET =
@@ -416,202 +657,48 @@ app.get('/api/auth/me', async (request, reply) => {
   }
 });
 
-app.get('/api/sales/dashboard', async () => {
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfYear = new Date(now.getFullYear(), 0, 1);
-
-  const [safes, recentInvoices, recentPayments, salesInvoices] =
-    await Promise.all([
-      prisma.safe.findMany({
-        select: {
-          id: true,
-          name: true,
-          currency: true,
-          balance: true,
-          branch: { select: { id: true, name: true } },
-        },
-        orderBy: { name: 'asc' },
-      }),
-      prisma.invoice.findMany({
-        take: 10,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          customer: { select: { id: true, code: true, name: true } },
-          user: { select: { id: true, name: true } },
-        },
-      }),
-      prisma.transaction.findMany({
-        take: 10,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          safe: { select: { id: true, name: true, currency: true } },
-          customer: { select: { id: true, code: true, name: true } },
-        },
-      }),
-      prisma.invoice.findMany({
-        where: {
-          type: 'SATIS',
-          userId: { not: null },
-          createdAt: { gte: startOfYear },
-        },
-        select: {
-          userId: true,
-          totalAmountTl: true,
-          createdAt: true,
-          user: { select: { id: true, name: true } },
-        },
-      }),
-    ]);
-
-  type TurnoverEntry = {
-    userId: number;
-    userName: string;
-    daily: number;
-    monthly: number;
-    yearly: number;
+app.get('/api/exchange-rates', async () => {
+  const rates = await fetchTcmbRates();
+  return {
+    success: true,
+    data: {
+      usd: rates.usd,
+      eur: rates.eur,
+      source: rates.source,
+      updatedAt: rates.updatedAt,
+    },
+    message: 'Exchange rates retrieved successfully.',
   };
+});
 
-  const turnoverMap = new Map<number, TurnoverEntry>();
-
-  for (const invoice of salesInvoices) {
-    if (!invoice.userId || !invoice.user) continue;
-
-    const entry =
-      turnoverMap.get(invoice.userId) ??
-      ({
-        userId: invoice.userId,
-        userName: invoice.user.name,
-        daily: 0,
-        monthly: 0,
-        yearly: 0,
-      } satisfies TurnoverEntry);
-
-    entry.yearly += invoice.totalAmountTl;
-
-    if (invoice.createdAt >= startOfMonth) {
-      entry.monthly += invoice.totalAmountTl;
-    }
-
-    if (invoice.createdAt >= startOfDay) {
-      entry.daily += invoice.totalAmountTl;
-    }
-
-    turnoverMap.set(invoice.userId, entry);
-  }
-
-  const staffTurnover = Array.from(turnoverMap.values()).sort((a, b) =>
-    a.userName.localeCompare(b.userName, 'tr')
-  );
-
-  const sevenDaysAgo = new Date(startOfDay);
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-  const thirtyDaysAgo = new Date(now);
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-  const [chartSales, chartPurchases, topProductRows, lowStockRows] =
-    await Promise.all([
-      prisma.invoice.findMany({
-        where: { type: 'SATIS', createdAt: { gte: sevenDaysAgo } },
-        select: { totalAmountTl: true, createdAt: true },
-      }),
-      prisma.invoice.findMany({
-        where: { type: 'SATIS', createdAt: { gte: sixMonthsAgo } },
-        select: { totalAmountTl: true, createdAt: true },
-      }),
-      prisma.invoiceItem.findMany({
-        where: {
-          invoice: { type: 'SATIS', createdAt: { gte: thirtyDaysAgo } },
-        },
-        select: {
-          quantity: true,
-          product: { select: { name: true } },
-        },
-      }),
-      prisma.branch
-        .findFirst({
-          where: { name: 'MERKEZ_DEPO' },
-          select: { id: true },
-        })
-        .then(async (branch) => {
-          if (!branch) return [];
-          return prisma.productStock.findMany({
-            where: { branchId: branch.id, quantity: { lte: 5 } },
-            include: {
-              product: { select: { id: true, sku: true, name: true } },
-            },
-            orderBy: { quantity: 'asc' },
-            take: 15,
-          });
-        }),
-    ]);
-
-  const dailySalesMap = new Map<string, number>();
-  for (let i = 0; i < 7; i += 1) {
-    const d = new Date(sevenDaysAgo);
-    d.setDate(d.getDate() + i);
-    dailySalesMap.set(d.toISOString().slice(0, 10), 0);
-  }
-  for (const inv of chartSales) {
-    const key = inv.createdAt.toISOString().slice(0, 10);
-    if (dailySalesMap.has(key)) {
-      dailySalesMap.set(key, (dailySalesMap.get(key) ?? 0) + inv.totalAmountTl);
-    }
-  }
-  const dailySales = Array.from(dailySalesMap.entries()).map(([date, total]) => ({
-    date,
-    label: new Date(`${date}T12:00:00`).toLocaleDateString('tr-TR', {
-      weekday: 'short',
-      day: 'numeric',
+app.get('/api/sales/dashboard', async () => {
+  const [safes, recentInvoices, recentPayments] = await Promise.all([
+    prisma.safe.findMany({
+      select: {
+        id: true,
+        name: true,
+        currency: true,
+        balance: true,
+        branch: { select: { id: true, name: true } },
+      },
+      orderBy: { name: 'asc' },
     }),
-    total,
-  }));
-
-  const monthlySalesMap = new Map<string, number>();
-  for (let i = 0; i < 6; i += 1) {
-    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    monthlySalesMap.set(key, 0);
-  }
-  for (const inv of chartPurchases) {
-    const key = `${inv.createdAt.getFullYear()}-${String(inv.createdAt.getMonth() + 1).padStart(2, '0')}`;
-    if (monthlySalesMap.has(key)) {
-      monthlySalesMap.set(
-        key,
-        (monthlySalesMap.get(key) ?? 0) + inv.totalAmountTl
-      );
-    }
-  }
-  const monthlySales = Array.from(monthlySalesMap.entries()).map(
-    ([month, total]) => ({
-      month,
-      label: new Date(`${month}-01T12:00:00`).toLocaleDateString('tr-TR', {
-        month: 'short',
-        year: '2-digit',
-      }),
-      total,
-    })
-  );
-
-  const productQtyMap = new Map<string, number>();
-  for (const row of topProductRows) {
-    const name = row.product.name;
-    productQtyMap.set(name, (productQtyMap.get(name) ?? 0) + row.quantity);
-  }
-  const topProducts = Array.from(productQtyMap.entries())
-    .map(([name, quantity]) => ({ name, quantity }))
-    .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 10);
-
-  const lowStock = lowStockRows.map((row) => ({
-    id: row.product.id,
-    sku: row.product.sku,
-    name: row.product.name,
-    quantity: row.quantity,
-  }));
+    prisma.invoice.findMany({
+      take: 5,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        customer: { select: { id: true, code: true, name: true } },
+      },
+    }),
+    prisma.transaction.findMany({
+      take: 5,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        safe: { select: { id: true, name: true, currency: true } },
+        customer: { select: { id: true, code: true, name: true } },
+      },
+    }),
+  ]);
 
   return {
     success: true,
@@ -619,19 +706,17 @@ app.get('/api/sales/dashboard', async () => {
       safeBalances: safes,
       recentInvoices,
       recentPayments,
-      staffTurnover,
-      charts: {
-        dailySales,
-        monthlySales,
-        topProducts,
-        staffComparison: staffTurnover.map((s) => ({
-          name: s.userName,
-          monthly: s.monthly,
-        })),
-      },
-      lowStock,
     },
     message: 'Dashboard data retrieved successfully.',
+  };
+});
+
+app.get('/api/reports/analytics', async () => {
+  const data = await buildAnalyticsReport();
+  return {
+    success: true,
+    data,
+    message: 'Analytics report retrieved successfully.',
   };
 });
 

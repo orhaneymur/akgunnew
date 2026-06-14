@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { FileInput, Save, Search, ShoppingCart, X } from 'lucide-react';
+import { useExchangeRates } from '../hooks/useExchangeRates';
 import {
   API_BASE,
-  EXCHANGE_RATE,
   ensureArray,
   formatMoney,
   type Customer,
@@ -54,6 +54,7 @@ export default function PurchaseCreate({
   onNotify,
   onDataChange,
 }: PurchaseCreateProps) {
+  const { rates } = useExchangeRates();
   const [initData, setInitData] = useState<InitData>({
     branches: [],
     safes: [],
@@ -331,7 +332,7 @@ export default function PurchaseCreate({
         safeId,
         paymentMethod,
         paymentType,
-        exchangeRate: EXCHANGE_RATE,
+        exchangeRate: rates.usd,
         dueDate: dueDate || undefined,
         invoiceDate,
         processedBy: processedBy || undefined,

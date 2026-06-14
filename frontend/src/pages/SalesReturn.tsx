@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { RotateCcw, Save, Search, ShoppingCart, X } from 'lucide-react';
+import { useExchangeRates } from '../hooks/useExchangeRates';
 import {
   API_BASE,
-  EXCHANGE_RATE,
   ensureArray,
   formatMoney,
   type PaginatedListResponse,
@@ -72,7 +72,8 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const exchangeRate = EXCHANGE_RATE;
+  const { rates } = useExchangeRates();
+  const exchangeRate = rates.usd;
 
   const branchSafes = useMemo(
     () =>

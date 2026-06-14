@@ -3,11 +3,42 @@ import axios from 'axios';
 const envBase = import.meta.env.VITE_API_BASE as string | undefined;
 export const API_BASE =
   envBase !== undefined ? envBase : 'http://localhost:3000';
-export const EXCHANGE_RATE = 46.39;
-export const EUR_RATE = 53.628;
+export const DEFAULT_USD = 46.39;
+export const DEFAULT_EUR = 53.628;
+/** @deprecated fetchExchangeRates veya useExchangeRates kullanın */
+export const EXCHANGE_RATE = DEFAULT_USD;
+/** @deprecated fetchExchangeRates veya useExchangeRates kullanın */
+export const EUR_RATE = DEFAULT_EUR;
 export const AUTH_STORAGE_KEY = 'isLoggedIn';
 export const AUTH_TOKEN_KEY = 'authToken';
 export const LIST_PAGE_SIZE = 50;
+
+export type ExchangeRates = {
+  usd: number;
+  eur: number;
+  source: string;
+  updatedAt: string;
+};
+
+export async function fetchExchangeRates(): Promise<ExchangeRates> {
+  try {
+    const response = await axios.get<{
+      success: boolean;
+      data: ExchangeRates;
+    }>(`${API_BASE}/api/exchange-rates`);
+    if (response.data.success && response.data.data) {
+      return response.data.data;
+    }
+  } catch {
+    /* varsayılan */
+  }
+  return {
+    usd: DEFAULT_USD,
+    eur: DEFAULT_EUR,
+    source: 'varsayılan',
+    updatedAt: new Date().toISOString(),
+  };
+}
 
 /** Login sonrası JWT'yi tüm axios isteklerine ekler */
 export function setupAuthInterceptor() {

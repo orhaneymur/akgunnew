@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar';
-import { EUR_RATE, EXCHANGE_RATE, AUTH_STORAGE_KEY, AUTH_TOKEN_KEY, formatMoney } from './lib/api';
+import { AUTH_STORAGE_KEY, AUTH_TOKEN_KEY, formatMoney } from './lib/api';
+import { useExchangeRates } from './hooks/useExchangeRates';
 import {
   getCategoryForPage,
   menuCategories,
@@ -30,6 +31,7 @@ import StockMovements from './pages/StockMovements';
 import StockValueReport from './pages/StockValueReport';
 import CashFlowReport from './pages/CashFlowReport';
 import CustomerStatement from './pages/CustomerStatement';
+import AnalyticsReport from './pages/AnalyticsReport';
 import Login from './pages/Login';
 
 const initialOpenMenus = menuCategories.reduce(
@@ -57,6 +59,7 @@ function App() {
   const [usdInput, setUsdInput] = useState('');
   const [eurInput, setEurInput] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { rates: exchangeRates } = useExchangeRates();
 
   const formattedDateLong = useMemo(
     () =>
@@ -84,16 +87,16 @@ function App() {
     if (!trimmed) return null;
     const value = Number(trimmed.replace(',', '.'));
     if (!Number.isFinite(value)) return null;
-    return value * EXCHANGE_RATE;
-  }, [usdInput]);
+    return value * exchangeRates.usd;
+  }, [usdInput, exchangeRates.usd]);
 
   const eurTlAmount = useMemo(() => {
     const trimmed = eurInput.trim();
     if (!trimmed) return null;
     const value = Number(trimmed.replace(',', '.'));
     if (!Number.isFinite(value)) return null;
-    return value * EUR_RATE;
-  }, [eurInput]);
+    return value * exchangeRates.eur;
+  }, [eurInput, exchangeRates.eur]);
 
   const showNotification = useCallback(
     (type: 'success' | 'error', message: string) => {
@@ -229,6 +232,8 @@ function App() {
         return <CustomerBalances />;
       case 'report-sales':
         return <ProfitReport />;
+      case 'report-analytics':
+        return <AnalyticsReport />;
       case 'report-stock-value':
         return <StockValueReport />;
       case 'report-cash-flow':
@@ -316,7 +321,10 @@ function App() {
                     USD
                   </span>
                   <span className="text-xs font-bold text-emerald-700 sm:text-sm">
-                    {EXCHANGE_RATE.toFixed(2)}
+                    {exchangeRates.usd.toFixed(4)}
+                  </span>
+                  <span className="block text-[9px] text-emerald-500/80 truncate max-w-[72px]">
+                    {exchangeRates.source}
                   </span>
                 </div>
                 <div className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-center sm:px-4 sm:py-2">
@@ -324,7 +332,7 @@ function App() {
                     EUR
                   </span>
                   <span className="text-xs font-bold text-blue-700 sm:text-sm">
-                    {EUR_RATE.toFixed(2)}
+                    {exchangeRates.eur.toFixed(4)}
                   </span>
                 </div>
               </div>
