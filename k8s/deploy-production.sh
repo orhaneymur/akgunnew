@@ -12,6 +12,13 @@ FRONTEND_IMAGE="${FRONTEND_IMAGE:-since1907/akgun-frontend:v1.5.1}"
 echo "==> Git guncelleme (orhan branch)..."
 git fetch origin orhan
 git checkout orhan 2>/dev/null || git checkout -b orhan origin/orhan
+
+if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+  echo "==> Yerel degisiklikler algilandi — repoya geciliyor (sunucu kopyasi yedeklenmez)..."
+  git status --short
+  git reset --hard HEAD
+fi
+
 git pull origin orhan
 
 echo "==> Schema kontrolu..."

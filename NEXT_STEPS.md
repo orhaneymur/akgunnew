@@ -37,6 +37,26 @@ docker push since1907/akgun-backend:v1.5.1
 
 Build hatası `productstock` vs `productStock` → repo eski, `git pull` yapın.
 
+### git pull çakışması (sunucu)
+
+Yerel dosya değişmişse pull durur. Sunucuda repodaki sürüm esas alınır:
+
+```bash
+cd ~/akgunnew
+git checkout -- k8s/import-database.sh   # sadece bu dosya ise
+git pull origin orhan
+bash k8s/deploy-production.sh
+```
+
+Veya pull beklemeden doğrudan imaj güncelle:
+
+```bash
+kubectl set image deployment/akgunteknik-backend backend=since1907/akgun-backend:v1.5.1
+kubectl set image deployment/akgunteknik-frontend frontend=since1907/akgun-frontend:v1.5.1
+kubectl rollout status deployment/akgunteknik-backend --timeout=300s
+kubectl rollout status deployment/akgunteknik-frontend --timeout=300s
+```
+
 ---
 
 ## Mevcut Durum (v1.5.1)
