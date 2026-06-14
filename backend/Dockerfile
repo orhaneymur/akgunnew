@@ -11,11 +11,14 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY prisma ./prisma
-COPY prisma.config.ts tsconfig.json ./
+COPY prisma.config.ts tsconfig.json tsconfig.build.json ./
 COPY src ./src
 
+# PascalCase schema zorunlu — eski introspect schema ile build patlar
+RUN grep -q "model ProductStock" prisma/schema.prisma || (echo "HATA: git pull origin orhan — schema.prisma guncel degil" && exit 1)
+
 RUN npx prisma generate
-RUN npx tsc
+RUN npx tsc -p tsconfig.build.json
 
 # ── Production imajı ───────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
