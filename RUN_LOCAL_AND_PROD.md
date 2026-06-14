@@ -1,6 +1,8 @@
 # Çalıştırma Kılavuzu — Yerel ve Production
 
-Bu belge, **Akgün Teknik ERP v1.0** projesini yerel geliştirme ortamında ve canlı sunucuda çalıştırma adımlarını içerir.
+Bu belge, **Akgün Teknik ERP v1.4** projesini yerel geliştirme ortamında ve K3s canlı kümesinde çalıştırma adımlarını içerir.
+
+**Canlı imajlar:** `since1907/akgun-backend:v1.2` · `since1907/akgun-frontend:v1.4`
 
 ---
 
@@ -83,21 +85,32 @@ Giriş sonrası tüm ERP modülleri (Dashboard, F2 satış, raporlar, menüler) 
 
 ---
 
-### Adım 5 — Excel Veri Aktarımı (Opsiyonel)
+### Adım 5 — Canlı Veri Yükleme (Opsiyonel)
 
-Gerçek müşteri ve ürün verilerini yüklemek için Excel dosyalarını `backend/` kök dizinine koy:
+#### Yöntem A — SQL yedek (önerilen)
+
+Repoda bulunan `akgun_canli_data.sql` (~2.7 MB) canlı veritabanının tam yedeğidir.
+
+```bash
+# Laragon / yerel MySQL
+mysql -u root akgunteknik < akgun_canli_data.sql
+```
+
+> Dosya **yalnızca repoda** tutulur; sunucu dosya sistemine kopyalanmaz.
+
+#### Yöntem B — Excel aktarım
+
+Excel dosyalarını `backend/` kök dizinine koy:
 
 - `musteriler.xlsx`
 - `urunler.xlsx`
-
-Ardından:
 
 ```bash
 cd backend
 npx tsx src/utils/importAllData.ts
 ```
 
-Script sırasıyla müşteri ve ürün/stok aktarımını yapar. MERKEZ_DEPO stokları Excel'deki `Bakiye` sütunundan okunur.
+MERKEZ_DEPO stokları Excel'deki `Bakiye` sütunundan okunur.
 
 ---
 
@@ -122,15 +135,17 @@ Bu bölüm, ERP'yi Linux sunucunuzdaki **Kubernetes (K8s)** kümesine taşımak 
 ```
 akgunteknik/
 ├── backend/
-│   ├── Dockerfile          # Node 20 Alpine + Prisma + Fastify (3000)
+│   ├── Dockerfile              # Node 20 Alpine + Prisma + Fastify (3000)
 │   └── .dockerignore
 ├── frontend/
-│   ├── Dockerfile          # Vite build + Nginx (80)
-│   ├── nginx.conf          # Statik dosya + /api proxy
+│   ├── Dockerfile              # Vite build + Nginx (80)
+│   ├── nginx.conf              # Statik dosya + /api proxy
 │   └── .dockerignore
+├── akgun_canli_data.sql        # Canlı DB yedeği — repoda, sunucuda DEĞİL
 └── k8s/
-    ├── backend-deployment.yaml   # Backend Deployment + Service
-    └── frontend-deployment.yaml  # Frontend Deployment + Service (LoadBalancer)
+    ├── apps.yaml               # Backend + Frontend (tek dosya)
+    ├── mysql-deployment.yaml   # MySQL 8.0 + PVC
+    └── import-database.sh      # Yerel makineden kubectl pipe import
 ```
 
 ---
@@ -146,16 +161,27 @@ akgunteknik/
 
 ---
 
-### Adım 1 — Veritabanı Secret'ını Oluştur
+### Adım 1 — MySQL ve Manifestleri Uygula
 
-Backend pod'ları MySQL bağlantı dizesine ihtiyaç duyar. Kümede bir kez çalıştırın:
+Mevcut K3s kurulumunda Secret gerekmez; `k8s/apps.yaml` içinde `DATABASE_URL` gömülüdür.
 
 ```bash
-kubectl create secret generic akgunteknik-secrets \
-  --from-literal=DATABASE_URL='mysql://KULLANICI:SIFRE@mysql-host:3306/akgunteknik'
+kubectl apply -f k8s/
+kubectl get pods
 ```
 
-> `mysql-host` — K8s içindeyse servis adı (ör. `mysql.default.svc.cluster.local`), dışarıdaysa sunucu IP'si.
+MySQL pod: `akgunteknik-mysql` · Servis: `akgunteknik-mysql:3306`
+
+#### Canlı veriyi ilk kez yüklemek
+
+Geliştirici makinesinde (repoda `akgun_canli_data.sql` olmalı):
+
+```bash
+bash k8s/import-database.sh
+kubectl rollout restart deployment/akgunteknik-backend
+```
+
+> **SQL dosyası sunucuya kopyalanmaz.** Script, yerel dosyayı `kubectl exec -i` ile pod'a pipe eder. Sunucuda yanlışlıkla kopyalanmışsa silin: `rm ~/akgunnew/akgun_canli_data.sql` (veya ilgili yol).
 
 ---
 
@@ -164,7 +190,8 @@ kubectl create secret generic akgunteknik-secrets \
 Proje **ana dizininden** (monorepo kökü):
 
 ```bash
-docker build -t akgunteknik-backend:latest ./backend
+docker build -t since1907/akgun-backend:v1.2 ./backend
+docker push since1907/akgun-backend:v1.2
 ```
 
 **İmaj içinde olanlar:**
@@ -185,7 +212,8 @@ docker run --rm -p 3000:3000 \
 ### Adım 3 — Frontend Docker İmajını Derle
 
 ```bash
-docker build -t akgunteknik-frontend:latest ./frontend
+docker build -t since1907/akgun-frontend:v1.4 ./frontend
+docker push since1907/akgun-frontend:v1.4
 ```
 
 **İmaj içinde olanlar:**
@@ -267,21 +295,19 @@ kubectl get svc akgunteknik-frontend
 
 ### Adım 7 — Sıfır Kesintili Güncelleme (Rolling Update)
 
-Kod değişikliği sonrası yeni imaj derleyip aynı etiketle güncelleyin:
+Kod değişikliği sonrası sürüm etiketini artırın (ör. `v1.5`):
 
 ```bash
-# 1. Yeni imajları derle
-docker build -t akgunteknik-backend:latest ./backend
-docker build -t akgunteknik-frontend:latest ./frontend
+# 1. Derle ve push
+docker build -t since1907/akgun-frontend:v1.5 ./frontend
+docker push since1907/akgun-frontend:v1.5
 
-# 2. Pod'ları yeniden başlat (rolling update tetiklenir)
-kubectl rollout restart deployment/akgunteknik-backend
-kubectl rollout restart deployment/akgunteknik-frontend
-
-# 3. Güncellemenin tamamlandığını izle
-kubectl rollout status deployment/akgunteknik-backend
-kubectl rollout status deployment/akgunteknik-frontend
+# 2. Kümede imajı güncelle
+kubectl set image deployment/akgunteknik-frontend frontend=since1907/akgun-frontend:v1.5
+kubectl rollout status deployment/akgunteknik-frontend --timeout=180s
 ```
+
+Backend için aynı mantık: `since1907/akgun-backend:v1.x`
 
 Manifest'te `maxUnavailable: 0` ve `maxSurge: 1` ayarlı — eski pod kapanmadan yenisi ayağa kalkar.
 

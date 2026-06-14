@@ -1,10 +1,13 @@
-# Akgün Teknik ERP v1.0
+# Akgün Teknik ERP v1.4
 
 ## Proje Özeti
 
 **Akgün Teknik ERP**, eski Laravel monolith yapısından arındırılmış; **Fastify**, **Prisma**, **MySQL** ve **React (Vite + Tailwind v4)** mimarisiyle yazılmış, sunucu dostu hafif ve klavye odaklı akıllı ön muhasebe / ERP sistemidir.
 
-Dükkanın günlük operasyonları — satış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Excel'den aktarılmış **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
+Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
+
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.2` · `since1907/akgun-frontend:v1.4`  
+**Giriş:** `akgunteknik` / `123456`
 
 ---
 
@@ -12,14 +15,34 @@ Dükkanın günlük operasyonları — satış, stok, cari, kasa, iade ve raporl
 
 ```
 akgunteknik/
-├── backend/          # Fastify 5 + Prisma 7 + TypeScript API (Port: 3000)
-├── frontend/         # React 19 + Vite 8 + Tailwind v4 (Port: 5173)
-├── k8s/              # Kubernetes manifestleri (planlanıyor)
-├── README.md         # Bu dosya — proje özeti
-├── REQUIREMENTS.md   # Gereksinimler ve altyapı detayları
-├── RUN_LOCAL_AND_PROD.md  # Yerel ve canlı çalıştırma kılavuzu
-└── NEXT_STEPS.md     # Sıradaki adımlar ve yol haritası
+├── backend/              # Fastify 5 + Prisma 7 + TypeScript API (Port: 3000)
+├── frontend/             # React 19 + Vite 8 + Tailwind v4 (Port: 5173)
+├── k8s/                  # Kubernetes manifestleri (backend, frontend, mysql)
+├── akgun_canli_data.sql  # Canlı DB yedeği (~2.7 MB) — yalnızca repoda
+├── README.md             # Bu dosya — proje özeti
+├── REQUIREMENTS.md       # Gereksinimler ve altyapı detayları
+├── RUN_LOCAL_AND_PROD.md # Yerel ve canlı çalıştırma kılavuzu
+└── NEXT_STEPS.md         # Sıradaki adımlar ve yol haritası
 ```
+
+---
+
+## Menü Yapısı (v1.4 — 17 canlı ekran)
+
+Placeholder sayfalar kaldırıldı; sidebar yalnızca çalışan modülleri listeler.
+
+| Grup | Ekranlar |
+|------|----------|
+| **Ana Sayfa** | Dashboard (5 hızlı erişim kartı) |
+| **Satış İşlemleri** | Satış Yap (F2), Satış İade |
+| **Alış İşlemleri** | Alış Faturası |
+| **Stok İşlemleri** | Stok Listesi, Stok Kartı Oluştur, Barkod Etiket |
+| **Müşteri İşlemleri** | Müşteri Listesi, Tahsilat / Ödeme, Müşteri Bakiye |
+| **Raporlar** | Kâr-Zarar Raporu |
+| **Tanımlar** | Ürün Tanımları, Kasa Tanımları, Personel Tanımları |
+| **Faturalar** | Fatura Listesi (filtre: Tümü / Satış / Alış / İade) |
+
+Menü tanımları: `frontend/src/lib/navigation.ts`
 
 ---
 
@@ -29,7 +52,7 @@ akgunteknik/
 - Günlük **kasa durumları** (TL / USD kasalar)
 - **Personel ciroları** (günlük, aylık, yıllık)
 - Renkli **fatura akışı** ve son **kasa hareketleri**
-- Üst kısımda **6 hızlı erişim kartı**: Satış Yap, Alış Yap, İade Al, Stok Kartı Oluştur, Alış Listesi, Satış Listesi
+- **5 hızlı erişim kartı:** Satış Yap, Alış Faturası, İade Al, Stok Kartı Oluştur, Fatura Listesi
 
 ### Hızlı Satış (F2)
 - **F2** tuşu ile her yerden satış ekranına geçiş ve arama modalı
@@ -38,9 +61,16 @@ akgunteknik/
 - Müşterinin **Son Satın Alma Fiyatını** otomatik getirme ve sepet satırında **Maliyet | Liste** kılavuzu
 - Nakit / Cari ödeme, şube ve kasa seçimi
 
+### Alış Faturası (Mal Kabul)
+- Tedarikçiden mal girişi formu (`PurchaseCreate.tsx`)
+- `GET /api/purchases/init` — tedarikçiler, kasalar, bir sonraki fatura no
+- `POST /api/purchases/store` — `AF{year}xxxx` numaralı `ALIS` faturası
+- **MERKEZ_DEPO** stok artışı ve ürün `costPrice` güncellemesi
+- Nakit → kasa düşümü + CIKIS hareketi; Cari → tedarikçi bakiye düşümü
+
 ### Satış Yönetimi ve Dövizli Muhasebe
 
-Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üst blok + akıllı sepet + fintech özet paneli** ile yeniden tasarlanmıştır.
+Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üst blok + akıllı sepet + fintech özet paneli** ile tasarlanmıştır.
 
 #### Evrak ve Müşteri Üst Blokları
 
@@ -56,26 +86,8 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 - Sepet satırları **USD ($)** bazlı: `Maliyet ($)` ve `Fiyat ($)` veritabanından gelir
 - Satır indirimi: `Toplam = (Adet × Fiyat) × (1 − Ind.% / 100)`
 - **Net Toplam ($)** kırmızı büyük puntoda; **TL Toplam** = `Net Toplam ($) × Döviz Kuru`
-- Üst bardaki kur (`46.3900`) satış panelinde düzenlenebilir input olarak kullanılır
+- Üst bardaki kur satış panelinde düzenlenebilir input olarak kullanılır
 - Müşteri değişince **Son Satın Aldığı Fiyat** otomatik USD'ye çevrilerek satıra yazılır
-
-#### Veritabanı — Invoice Genişletmeleri
-
-| Alan | Tip | Açıklama |
-|------|-----|----------|
-| `invoiceNo` | String | Benzersiz fatura numarası |
-| `dueDate` | DateTime? | Vade tarihi |
-| `paymentMethod` | String? | EFT/Havale, Nakit, Kart, Cari |
-| `paymentType` | String? | Peşin, Vadeli |
-| `deliveryType` | String? | Mağazadan Teslim, Kargo |
-| `exchangeRate` | Float | Satış anı dolar kuru |
-| `totalAmountUsd` | Float | Dolar net toplam |
-| `totalAmountTl` | Float | TL net toplam |
-| `isPreOrder` | Boolean | Ön sipariş — stok düşmez |
-| `processedBy` | String? | İşlemi yapan personel |
-| `orderNotes` | Text | Sipariş açıklaması |
-
-`InvoiceItem.discountPercent` — satır indirim yüzdesi (varsayılan 0).
 
 #### POST `/api/sales/store` Davranışı
 
@@ -84,17 +96,11 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 - Nakit / EFT / Kart → kasa bakiyesi ve tahsilat hareketi TL tutarıyla artar
 - Cari → müşteri bakiyesi TL tutarıyla artar
 
-#### Ön Sipariş & Yazdır
-
-- **Ön Sipariş** checkbox'ı stoksuz sipariş kaydı için
-- **Yazdır** tikliyken kayıt sonrası `window.print()` tetiklenir
-- **KAYDET** — büyük yeşil esnaf butonu; tüm veriyi backend'e gönderir
-
-### Stok ve Depo Yönetimi
-- **`MERKEZ_DEPO`** — Satış stoğu (satış düşümü, sağlam iade girişi)
+### Stok Yönetimi
+- **`MERKEZ_DEPO`** — Satış stoğu (satış düşümü, alış girişi, sağlam iade girişi)
 - **`ARIZALI_DEPO`** — Arızalı ürün izolasyon deposu
 - Ürün kartlarında **`costPrice` (Alış Maliyeti)** ve **`priceTl` (Satış Fiyatı)** zorunlu takibi
-- Stok listesi, barkod etiket, depo transfer ve stok kartı oluşturma ekranları
+- Stok listesi, barkod etiket ve stok kartı oluşturma ekranları
 
 ### Akıllı İade Lojiği
 - **`isDefective: true`** → iade stoğu **ARIZALI_DEPO**'ya eklenir
@@ -102,22 +108,47 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 - Müşteri carisinden iade tutarı düşülür, `IADE` tipi fatura oluşturulur
 
 ### Müşteri / Cari Yönetimi
-- Excel'den aktarılmış **181 müşteri** ve **16.737 ürün** canlı veritabanında
+- Excel / canlı yedekten aktarılmış **181 müşteri** ve **16.737 ürün**
 - Anlık **borç / alacak** takibi, tahsilat / ödeme kayıtları
 - Müşteri bakiye raporu ve **costPrice** bazlı **kâr-zarar analizi**
 
-### Üst Bar Araçları
-- Anlık **USD** ve **EUR** kur göstergeleri
-- Satır içi **Döviz Çevirici** kutuları ($ ve € → anlık TL karşılığı)
+### Fatura Listesi
+- Tek ekranda **Tümü / Satış / Alış / İade** filtresi
+- Dashboard kısayolları filtreli listeye yönlendirir
+
+### Mobil Arayüz (v1.3+)
+- Hamburger menü, kompakt üst bar, mobil uyumlu padding
+- Bildirimler mobilde alt bantta
 
 ### Güvenlik Kapısı
 - **`akgunteknik` / `123456`** ile korunan admin giriş paneli
 - `localStorage` tabanlı oturum kontrolü ve **Router koruması**
 - Sol menü altında **Güvenli Çıkış** butonu
 
-### Tanımlama Modülleri
-- Kategori & Marka, Kasa, Personel tanımları
-- Fatura listesi (Satış / Alış / İade filtreli)
+---
+
+## Canlı Veri Yedeği (`akgun_canli_data.sql`)
+
+| Konum | Durum |
+|-------|-------|
+| **Git reposu** | Evet — sürüm kontrolünde (~2.7 MB) |
+| **Sunucu dosya sistemi** | Hayır — sunucuya kopyalanmaz |
+
+**Politika:** Veri bir kez çekildikten sonra yedek dosyası yalnızca repoda kalır. Sunucudaki MySQL verisi PVC üzerinde yaşar; SQL dump sunucuda tutulmaz.
+
+**Yerel geliştirme** — Laragon MySQL'e import:
+
+```bash
+mysql -u root akgunteknik < akgun_canli_data.sql
+```
+
+**K3s kümesine import** — geliştirici makinesinden (kubectl erişimi gerekir):
+
+```bash
+bash k8s/import-database.sh
+```
+
+Script, repodaki dosyayı `kubectl exec` ile pod'a pipe eder; sunucuya `scp` gerekmez.
 
 ---
 
@@ -126,17 +157,18 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 | Katman | Teknoloji |
 |--------|-----------|
 | Backend API | Fastify 5, TypeScript, Prisma 7 |
-| Veritabanı | MySQL (Laragon), MariaDB adapter |
+| Veritabanı | MySQL 8.0 (K3s pod veya Laragon) |
 | Frontend | React 19, Vite 8, Tailwind CSS v4 |
 | HTTP İstemci | Axios |
 | İkonlar | Lucide React |
+| Container | Docker Hub · K3s rolling update |
 | Excel Aktarım | xlsx |
 
 ---
 
 ## Hızlı Başlangıç
 
-Detaylı kurulum adımları için → **[RUN_LOCAL_AND_PROD.md](./RUN_LOCAL_AND_PROD.md)**
+Detaylı kurulum → **[RUN_LOCAL_AND_PROD.md](./RUN_LOCAL_AND_PROD.md)**
 
 ```bash
 # 1. Laragon'da MySQL'i başlat
@@ -163,8 +195,11 @@ http://localhost:5173
 | GET | `/api/sales/products?search=&customerId=` | F2 ürün arama |
 | POST | `/api/sales/store` | Satış kaydı |
 | POST | `/api/sales/return` | İade kaydı |
+| GET | `/api/sales/invoices` | Fatura listesi (tip filtresi) |
+| GET | `/api/purchases/init` | Alış ekranı başlangıç verisi |
+| POST | `/api/purchases/store` | Alış faturası kaydı |
 | POST | `/api/products` | Stok kartı oluştur |
-| GET | `/api/products?search=&page=&limit=` | Sayfalı stok listesi (`totalCount`, `page`, `limit`) |
+| GET | `/api/products?search=&page=&limit=` | Sayfalı stok listesi |
 | GET | `/api/customers?search=&page=&limit=` | Sayfalı müşteri listesi |
 | GET | `/api/reports/profit` | Kâr-zarar raporu |
 | POST | *(script)* `src/utils/importAllData.ts` | Excel toplu aktarım |
@@ -179,8 +214,16 @@ http://localhost:5173
 | Ana Sayfa | `frontend/src/pages/Dashboard.tsx` |
 | Hızlı Satış (F2) | `frontend/src/pages/SalesCreate.tsx` |
 | Satış İade | `frontend/src/pages/SalesReturn.tsx` |
-| Stok Kartı Oluştur | `frontend/src/pages/ProductCreate.tsx` |
+| Alış Faturası | `frontend/src/pages/PurchaseCreate.tsx` |
+| Stok Listesi | `frontend/src/pages/StockList.tsx` |
+| Stok Kartı | `frontend/src/pages/ProductCreate.tsx` |
+| Barkod Etiket | `frontend/src/pages/BarcodePrint.tsx` |
+| Müşteri Listesi | `frontend/src/pages/CustomerList.tsx` |
+| Tahsilat / Ödeme | `frontend/src/pages/CustomerPayment.tsx` |
+| Müşteri Bakiye | `frontend/src/pages/CustomerBalances.tsx` |
+| Kâr-Zarar Raporu | `frontend/src/pages/ProfitReport.tsx` |
 | Fatura Listesi | `frontend/src/pages/Invoices.tsx` |
+| Tanımlar | `CategoryManager`, `SafeManager`, `PersonnelManager` |
 | Menü tanımları | `frontend/src/lib/navigation.ts` |
 
 ---
@@ -189,57 +232,36 @@ http://localhost:5173
 
 16.000+ ürün ve 180+ müşteri kaydıyla listelerin şişmesini önlemek için **sayfalı (paginated) API** ve **gelişmiş sayfalama paneli** uygulanmıştır.
 
-### Backend
+- `GET /api/products` ve `GET /api/customers` — varsayılan **50** kayıt/sayfa, `totalCount` ile
+- Ortak bileşen: `frontend/src/components/PaginationBar.tsx`
+- Kullanan ekranlar: `StockList.tsx`, `CustomerList.tsx`
 
-| Endpoint | Parametreler | Davranış |
-|----------|--------------|----------|
-| `GET /api/products` | `page` (1'den başlar), `limit` (varsayılan **50**), `search` | Sayfa başına en fazla 50 kayıt; arama filtresine uyan `totalCount` ile birlikte döner |
-| `GET /api/customers` | `page`, `limit`, `search` | Aynı mantık; Türkçe normalize arama destekli |
+---
 
-**Yanıt formatı:**
+## Canlı Dağıtım (Özet)
 
-```json
-{
-  "success": true,
-  "data": [ /* kayıtlar */ ],
-  "totalCount": 16737,
-  "limit": 50,
-  "page": 1,
-  "message": "Products retrieved successfully."
-}
+```bash
+# İmaj güncelleme (örnek)
+kubectl set image deployment/akgunteknik-frontend frontend=since1907/akgun-frontend:v1.4
+kubectl set image deployment/akgunteknik-backend backend=since1907/akgun-backend:v1.2
+kubectl rollout status deployment/akgunteknik-frontend --timeout=180s
 ```
 
-- `totalCount` — Filtreye (arama kelimesine) uyan toplam kayıt (`prisma.count()` ile paralel hesaplanır)
-- `limit` — Sayfa başına kayıt sayısı
-- `page` — Aktif sayfa numarası (1 tabanlı)
-- Geriye dönük uyumluluk: `take` / `skip` parametreleri hâlâ desteklenir
-
-### Frontend — Gelişmiş Sayfalama Paneli
-
-Ortak bileşen: `frontend/src/components/PaginationBar.tsx`
-
-| Kontrol | İşlev |
-|---------|--------|
-| `<<` | İlk sayfaya zıpla (page = 1) |
-| `<` | Önceki sayfa |
-| Sayfa numaraları | Tıklanabilir; aktif sayfa indigo/mavi parlar; çok sayfada `…` ile kısaltma |
-| `>` | Sonraki sayfa |
-| `>>` | Son sayfaya zıpla (`Math.ceil(totalCount / limit)`) |
-
-**Bilgi metni:** `Toplam X kayıttan Y–Z arası gösteriliyor (Sayfa A / B)`
-
-| Ekran | Dosya |
-|-------|-------|
-| Stok Listesi | `StockList.tsx` |
-| Müşteri Listesi | `CustomerList.tsx` |
-
-**Sabitler:** `LIST_PAGE_SIZE = 50` · `buildVisiblePages()` · `getTotalPages()` → `frontend/src/lib/api.ts`
+Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f k8s/`
 
 ---
 
 ## Geçmiş
 
-Önceki **Laravel + Vue** monolith kod tabanı tamamen temizlendi. Mevcut mimari sıfırdan **Node.js backend + React frontend** üzerine inşa edilmiştir ve **v1.0** fonksiyonel ERP seviyesine ulaşmıştır.
+Önceki **Laravel + Vue** monolith kod tabanı tamamen temizlendi. Mevcut mimari sıfırdan **Node.js backend + React frontend** üzerine inşa edilmiştir.
+
+| Sürüm | Öne çıkanlar |
+|-------|----------------|
+| v1.0 | Satış, stok, cari, iade, dashboard |
+| v1.1 | Prisma PascalCase düzeltmesi, white-screen fix |
+| v1.2 | Alış faturası API + ekranı |
+| v1.3 | Mobil UI (hamburger menü) |
+| v1.4 | Menü sadeleştirme, tek filtreli fatura listesi |
 
 ---
 
@@ -247,4 +269,4 @@ Ortak bileşen: `frontend/src/components/PaginationBar.tsx`
 
 - **[REQUIREMENTS.md](./REQUIREMENTS.md)** — Sistem gereksinimleri, paketler, veritabanı şeması
 - **[RUN_LOCAL_AND_PROD.md](./RUN_LOCAL_AND_PROD.md)** — Yerel ve production çalıştırma
-- **[NEXT_STEPS.md](./NEXT_STEPS.md)** — Faz 2 yol haritası ve yapılacaklar
+- **[NEXT_STEPS.md](./NEXT_STEPS.md)** — Sıradaki fazlar ve yapılacaklar

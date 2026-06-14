@@ -1,5 +1,11 @@
 #!/bin/bash
 # akgunteknik-mysql pod'una akgun_canli_data.sql import eder.
+#
+# ONEMLI — SQL dosyasi yalnizca GIT REPOSUNDA tutulur (~2.7 MB).
+# Sunucuya scp/kopyalama YAPMAYIN. Bu script gelistirici makinesinden
+# calistirilir; dosya kubectl exec stdin pipe ile pod'a aktarilir.
+#
+# Onkosul: git clone + kubectl kubeconfig (sunucuya SSH gerekmez, SQL dosyasi da gitmez)
 # Kullanim: bash k8s/import-database.sh
 set -euo pipefail
 

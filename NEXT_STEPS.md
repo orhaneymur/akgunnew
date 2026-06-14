@@ -1,65 +1,61 @@
 # Sıradaki Adımlar ve Yapılacaklar
 
-Bu belge, **Akgün Teknik ERP v1.0** tamamlandıktan sonraki geliştirme yol haritasını tanımlar. Her faz, dükkanın operasyonel ihtiyaçlarına göre önceliklendirilmiştir.
+Bu belge, **Akgün Teknik ERP** geliştirme yol haritasını tanımlar. Faz numaraları operasyonel önceliğe göre güncellenmiştir.
 
 ---
 
-## Mevcut Durum (v1.0 — Tamamlandı)
+## Mevcut Durum (v1.4 — Haziran 2026)
 
+### Çekirdek ERP (tamamlandı)
 - [x] Dashboard, kasa özeti, personel ciroları
 - [x] F2 hızlı satış motoru (Türkçe / case-insensitive arama)
 - [x] MERKEZ_DEPO / ARIZALI_DEPO depo ayrımı
 - [x] costPrice + priceTl zorunlu stok kartı
 - [x] Akıllı iade lojiği (arızalı / sağlam)
-- [x] Excel toplu aktarım (16.737 ürün, 181 müşteri)
+- [x] Excel / canlı SQL yedek ile veri (16.737 ürün, 181 müşteri)
 - [x] Cari yönetimi, tahsilat, bakiye ve kâr raporu
 - [x] Üst bar döviz çevirici
 - [x] Admin giriş kapısı (akgunteknik / 123456)
-- [x] 6 hızlı erişim kartı (Dashboard)
-- [x] Büyük veri performans optimizasyonu (sayfalı API + Stok/Müşteri listeleri)
+- [x] Büyük veri sayfalama (Stok / Müşteri listeleri)
+
+### Faz 1 — Menü sadeleştirme (tamamlandı)
+- [x] 35 maddeden 17 canlı ekrana indirildi
+- [x] Placeholder sayfalar kaldırıldı (`PageShell`, `Reports`, `WarehouseList`)
+- [x] Tek **Fatura Listesi** (Tümü / Satış / Alış / İade filtresi)
+- [x] Dashboard: 5 hızlı erişim kartı
+- [x] Frontend `since1907/akgun-frontend:v1.4`
+
+### Faz 2 — Alış faturası (tamamlandı)
+- [x] `PurchaseCreate.tsx` — tedarikçiden mal girişi formu
+- [x] `GET /api/purchases/init` ve `POST /api/purchases/store`
+- [x] `AF{year}xxxx` numaralı `ALIS` faturası, MERKEZ_DEPO stok artışı
+- [x] Nakit kasa düşümü / Cari tedarikçi borç kaydı
+- [x] Backend `since1907/akgun-backend:v1.2`
+
+### Faz 3 — Dokümantasyon (tamamlandı)
+- [x] `README.md` — güncel modül listesi, menü yapısı, sürüm geçmişi
+- [x] `NEXT_STEPS.md` — faz durumları yeniden numaralandı
+- [x] `RUN_LOCAL_AND_PROD.md` — Docker Hub etiketleri, SQL yedek politikası
+- [x] `akgun_canli_data.sql` — repoda kalır, sunucuda tutulmaz
 
 ---
 
-## Performans Optimizasyonu (Tamamlandı)
+## Faz 4 — İşlevsel İyileştirmeler (sıradaki)
 
-- [x] `GET /api/products` — `take` / `skip` sayfalama (varsayılan 50 kayıt)
-- [x] `GET /api/customers` — `take` / `skip` sayfalama (varsayılan 50 kayıt)
-- [x] Arama sorgularında limitli sonuç (ilk 50 eşleşme)
-- [x] `StockList.tsx` — sayfa navigasyonu + debounce arama
-- [x] `CustomerList.tsx` — sayfa navigasyonu + debounce arama
-- [x] API yanıtına `totalCount`, `limit`, `page` eklendi (yeni JSON formatı)
-- [x] `PaginationBar.tsx` — <<, <, sayfa numaraları, >, >> kontrol paneli
-- [x] Stok / Müşteri listelerinde gelişmiş sayfalama arayüzü
-
----
-
-## Öncelikli Aşama — Faz 2 (İşlevsel Tamamlama)
-
-### Alış Yap (Mal Kabul) Ekranı
-- [ ] Tedarikçiden mal girişi formu (`invoice-purchase` sayfası şu an şablon)
-- [ ] `POST /api/purchases/store` endpoint'i
-- [ ] Alış faturası oluşturma → MERKEZ_DEPO stok artışı
-- [ ] Tedarikçi cari borç kaydı
-- [ ] Dashboard hızlı menüdeki **Alış Yap** kartını canlı ekrana bağlama
-
-### İade Al — Tam Test ve İyileştirme
+### İade — Tam Test ve İyileştirme
 - [ ] `SalesReturn.tsx` uçtan uca test senaryoları (arızalı / sağlam)
 - [ ] İade sonrası stok doğrulama (MERKEZ_DEPO / ARIZALI_DEPO)
 - [ ] İade fatura numarası (`IF2026xxxx`) listeleme entegrasyonu
 - [ ] Müşteri cari bakiye düşümü doğrulama
 
-### Stok ve Depo
-- [ ] Depo transfer ekranını canlı API'ye bağlama
-- [ ] Stok hareketleri geçmişi (`stock-movements`)
-- [ ] Kritik stok seviyesi uyarıları (Dashboard pill)
-
----
-
-## Analiz Aşaması — Faz 3 (Raporlama ve Grafikler)
+### Stok ve Depo (gelecek modüller)
+- [ ] Depo transfer ekranı (MERKEZ ↔ ARIZALI)
+- [ ] Stok hareketleri geçmişi
+- [ ] Kritik stok seviyesi uyarıları (Dashboard)
 
 ### Dashboard Canlı Grafikler
-- [ ] Gerçek veriler üzerinden **günlük / aylık ciro** grafiği
-- [ ] **Kâr-zarar** trend grafiği (`costPrice` vs satış fiyatı)
+- [ ] Günlük / aylık ciro grafiği
+- [ ] Kâr-zarar trend grafiği
 - [ ] En çok satan 10 ürün widget'ı
 - [ ] Personel ciroları karşılaştırma chart'ı
 
@@ -71,38 +67,32 @@ Bu belge, **Akgün Teknik ERP v1.0** tamamlandıktan sonraki geliştirme yol har
 
 ---
 
-## Canlıya Geçiş Aşaması — Faz 4 (DevOps)
+## Faz 5 — DevOps ve Güvenlik
 
-### Docker ve Container
-- [ ] `backend/Dockerfile` — multi-stage, Alpine tabanlı
-- [ ] `frontend/Dockerfile` — nginx ile statik serve
-- [ ] `docker-compose.yml` — yerel production simülasyonu (backend + frontend + mysql)
-
-### Kubernetes Kümesi
-- [ ] `k8s/deployment-backend.yaml`
-- [ ] `k8s/deployment-frontend.yaml`
-- [ ] `k8s/service.yaml` + `ingress.yaml`
-- [ ] ConfigMap / Secret (DATABASE_URL, auth)
-- [ ] Kiralık Linux sunucusundaki K8s kümesine deploy
-- [ ] RAM tüketim hedefi: **15–20 MB / pod**
+### Kubernetes / Sunucu
+- [x] `backend/Dockerfile`, `frontend/Dockerfile`
+- [x] `k8s/apps.yaml`, `k8s/mysql-deployment.yaml`
+- [x] K3s rolling update (`since1907/*` imajları)
+- [ ] Sunucudaki eski / gereksiz MySQL pod veya manifest temizliği
+- [ ] `k8s/ingress.yaml` (LoadBalancer yerine Ingress)
+- [ ] HTTPS / reverse proxy (Traefik veya nginx Ingress)
 
 ### Güvenlik Güçlendirme
 - [ ] JWT tabanlı oturum (localStorage token doğrulama)
 - [ ] Şifre hash (bcrypt) — veritabanı tabanlı kullanıcı
-- [ ] HTTPS zorunluluğu (production)
 - [ ] Rate limiting (login endpoint)
+- [ ] Production DATABASE_URL — Secret ile (gömülü değer yerine)
 
 ---
 
-## Uzun Vadeli — Faz 5+ (İsteğe Bağlı)
+## Uzun Vadeli — Faz 6+ (İsteğe Bağlı)
 
 - [ ] Barkod okuyucu entegrasyonu (USB HID → F2 arama)
 - [ ] Çoklu şube / kasa yetkilendirme
 - [ ] Teklif / proforma modülü
 - [ ] SMS / WhatsApp fatura bildirimi
-- [ ] Mobil uyumlu satış ekranı (tablet)
 - [ ] Otomatik kur güncelleme (TCMB API)
-- [ ] Yedekleme ve geri yükleme scripti
+- [ ] Zamanlanmış MySQL yedekleme (sunucuda dump üret, repoya commit etme — ayrı süreç)
 
 ---
 
@@ -110,28 +100,41 @@ Bu belge, **Akgün Teknik ERP v1.0** tamamlandıktan sonraki geliştirme yol har
 
 | Öncelik | Görev | Tahmini Efor |
 |---------|-------|--------------|
-| 🔴 Yüksek | Alış Yap ekranı + API | 2–3 gün |
 | 🔴 Yüksek | İade uçtan uca test | 0.5 gün |
 | 🟡 Orta | Dashboard grafikleri | 2 gün |
-| 🟡 Orta | Dockerfile + docker-compose | 1 gün |
-| 🟢 Düşük | K8s manifestleri | 1–2 gün |
+| 🟡 Orta | Depo transfer + stok hareketleri | 2–3 gün |
 | 🟢 Düşük | JWT auth güçlendirme | 1 gün |
+| 🟢 Düşük | K8s Ingress + HTTPS | 1 gün |
+| 🟢 Düşük | Sunucu manifest temizliği | 0.5 gün |
+
+---
+
+## Veri Yedek Politikası
+
+| Dosya | Repoda | Sunucuda |
+|-------|--------|----------|
+| `akgun_canli_data.sql` | Evet (~2.7 MB, git) | Hayır |
+
+- Canlı veri bir kez import edildikten sonra MySQL PVC üzerinde kalır.
+- Yeni yedek almak: sunucudan `mysqldump` → geliştirici makinesine indir → repoya commit.
+- Sunucuya `scp akgun_canli_data.sql` **yapılmaz**; import script geliştirici makinesinden `kubectl exec` pipe ile çalışır.
 
 ---
 
 ## Geliştirme Notları
 
-- Her yeni modül önce **backend endpoint** → sonra **frontend sayfa** sırasıyla geliştirilmeli
-- Schema değişikliği sonrası: `npx prisma migrate dev` + `npx prisma generate` + backend restart
-- Yeni sayfa eklerken `frontend/src/lib/navigation.ts` içindeki `PageId` ve menü ağacını güncelle
-- Canlı veri testleri için `importAllData.ts` scripti tekrar çalıştırılabilir (upsert mantığı)
+- Her yeni modül: **backend endpoint** → **frontend sayfa** sırası
+- Schema değişikliği: `npx prisma migrate dev` + `npx prisma generate` + backend restart
+- Yeni sayfa: `frontend/src/lib/navigation.ts` içindeki `PageId` ve menü ağacını güncelle
+- Docker imaj sürümü artır → push → `kubectl set image` ile canlıya al
+- Git branch: `orhan` → `https://github.com/orhaneymur/akgunnew`
 
 ---
 
-## İletişim ve Dokümantasyon
+## Dokümantasyon
 
-Yeni geliştirme başlamadan önce şu dosyaları oku:
-
-1. **[README.md](./README.md)** — Proje özeti ve modül listesi
-2. **[REQUIREMENTS.md](./REQUIREMENTS.md)** — Paketler ve veritabanı şeması
-3. **[RUN_LOCAL_AND_PROD.md](./RUN_LOCAL_AND_PROD.md)** — Çalıştırma adımları
+| Dosya | İçerik |
+|-------|--------|
+| [README.md](./README.md) | Proje özeti, modül listesi, API |
+| [REQUIREMENTS.md](./REQUIREMENTS.md) | Paketler ve veritabanı şeması |
+| [RUN_LOCAL_AND_PROD.md](./RUN_LOCAL_AND_PROD.md) | Yerel ve K3s dağıtım adımları |
