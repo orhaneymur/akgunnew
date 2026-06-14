@@ -23,8 +23,8 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: akgunteknik-frontend:latest
-          imagePullPolicy: IfNotPresent
+          image: since1907/akgun-frontend:v1.0
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 80

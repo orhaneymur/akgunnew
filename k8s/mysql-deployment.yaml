@@ -1,0 +1,113 @@
+# MySQL 8.0 — Akgün Teknik ERP (K3s)
+# Uygulama: kubectl apply -f k8s/mysql-deployment.yaml
+#
+# Secret (bir kez):
+# kubectl create secret generic akgunteknik-mysql-secrets \
+#   --from-literal=MYSQL_ROOT_PASSWORD='GÜÇLÜ_ŞİFRE' \
+#   --from-literal=MYSQL_DATABASE='akgunteknik'
+#
+# Backend DATABASE_URL örneği:
+# mysql://root:GÜÇLÜ_ŞİFRE@akgunteknik-mysql:3306/akgunteknik
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: akgunteknik-mysql-pvc
+  labels:
+    app: akgunteknik-mysql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: akgunteknik-mysql
+  labels:
+    app: akgunteknik-mysql
+    tier: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: akgunteknik-mysql
+  template:
+    metadata:
+      labels:
+        app: akgunteknik-mysql
+        tier: database
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mysql
+              containerPort: 3306
+          args:
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_unicode_ci
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: akgunteknik-mysql-secrets
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: akgunteknik-mysql-secrets
+                  key: MYSQL_DATABASE
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+            initialDelaySeconds: 45
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 1Gi
+              cpu: "1"
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: akgunteknik-mysql-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: akgunteknik-mysql
+  labels:
+    app: akgunteknik-mysql
+spec:
+  type: ClusterIP
+  selector:
+    app: akgunteknik-mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306

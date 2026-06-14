@@ -1,3 +1,7 @@
+# Akgün Teknik ERP — K3s / Kubernetes uygulama manifestleri
+# Uygulama: kubectl apply -f k8s/apps.yaml
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -72,3 +76,68 @@ spec:
     - name: http
       port: 3000
       targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: akgunteknik-frontend
+  labels:
+    app: akgunteknik-frontend
+    tier: frontend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: akgunteknik-frontend
+  template:
+    metadata:
+      labels:
+        app: akgunteknik-frontend
+        tier: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: since1907/akgun-frontend:v1.0
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 25m
+            limits:
+              memory: 128Mi
+              cpu: 250m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: akgunteknik-frontend
+  labels:
+    app: akgunteknik-frontend
+spec:
+  type: LoadBalancer
+  selector:
+    app: akgunteknik-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
