@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Eye, FileText, Filter, Pencil, Save, X } from 'lucide-react';
+import { Eye, FileText, Filter, Pencil, Save, Search, X } from 'lucide-react';
 import {
   API_BASE,
   formatDate,
@@ -63,6 +63,7 @@ export default function Invoices({
 }: InvoicesProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [filter, setFilter] = useState<FilterType>(initialFilter);
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -110,6 +111,25 @@ export default function Invoices({
   useEffect(() => {
     loadInvoices();
   }, [loadInvoices]);
+
+  const filteredInvoices = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase('tr-TR');
+    if (!query) return invoices;
+
+    return invoices.filter((inv) => {
+      const haystack = [
+        inv.invoiceNo,
+        inv.customer.code,
+        inv.customer.name,
+        inv.paymentMethod,
+        inv.processedBy ?? '',
+        inv.orderNotes ?? '',
+      ]
+        .join(' ')
+        .toLocaleLowerCase('tr-TR');
+      return haystack.includes(query);
+    });
+  }, [invoices, search]);
 
   const openDetail = async (inv: Invoice) => {
     setDetailLoading(true);
@@ -215,6 +235,17 @@ export default function Invoices({
         </div>
       </div>
 
+      <div className="relative max-w-xl">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Fatura no, müşteri adı veya kodu ile ara..."
+          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm shadow-sm focus:border-violet-500 focus:ring-violet-500"
+        />
+      </div>
+
       <section className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-100">
@@ -249,8 +280,15 @@ export default function Invoices({
                   </td>
                 </tr>
               )}
+              {!loading && filteredInvoices.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400 text-sm">
+                    {search.trim() ? 'Arama kriterine uygun fatura bulunamadı.' : 'Kayıt bulunamadı.'}
+                  </td>
+                </tr>
+              )}
               {!loading &&
-                invoices.map((inv) => (
+                filteredInvoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-slate-50/60">
                     <td className="px-4 py-3 text-sm font-semibold text-slate-900">
                       {inv.invoiceNo}

@@ -1,6 +1,15 @@
 import { useCallback } from 'react';
 import type { F2Product } from './useF2ProductSearch';
 
+const NAV_KEYS = new Set([
+  'ArrowDown',
+  'ArrowUp',
+  'PageDown',
+  'PageUp',
+  'Enter',
+  'Escape',
+]);
+
 export function useF2KeyboardNav(options: {
   open: boolean;
   results: F2Product[];
@@ -13,7 +22,7 @@ export function useF2KeyboardNav(options: {
 
   return useCallback(
     (event: React.KeyboardEvent) => {
-      if (!open) return;
+      if (!open || !NAV_KEYS.has(event.key)) return;
 
       if (event.key === 'ArrowDown') {
         event.preventDefault();
@@ -51,6 +60,7 @@ export function useF2KeyboardNav(options: {
 
       if (event.key === 'Escape') {
         event.preventDefault();
+        event.stopPropagation();
         onClose();
       }
     },

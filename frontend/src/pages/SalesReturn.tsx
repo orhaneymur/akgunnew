@@ -229,21 +229,15 @@ export default function SalesReturn({
       .finally(() => setLoadingDetail(false));
   }, [selectedInvoiceId, notify]);
 
-  const openSearchModal = useCallback(() => {
-    setSearchModal(true);
-    f2.openSearch();
-  }, [f2]);
-
   const closeSearchModal = useCallback(() => {
     setSearchModal(false);
-    f2.closeSearch();
-  }, [f2]);
+  }, []);
 
   useEffect(() => {
     if (f2Trigger > 0) {
-      openSearchModal();
+      setSearchModal(true);
     }
-  }, [f2Trigger, openSearchModal]);
+  }, [f2Trigger]);
 
   useEffect(() => {
     if (!pendingReturnItemId || !invoiceDetail) return;

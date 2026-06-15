@@ -36,6 +36,7 @@ type CustomerRow = {
 type ProductRow = {
   StokKodu?: string | number;
   StokAdi?: string;
+  Kategori?: string;
   Barkod?: string | number;
   Birim?: string;
   AlisFiyati?: string | number;
@@ -44,6 +45,25 @@ type ProductRow = {
   MevcutStok?: string | number;
   Bakiye?: string | number;
 };
+
+const categoryCache = new Map<string, number>();
+
+async function findOrCreateCategoryId(name: string): Promise<number | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+
+  if (categoryCache.has(trimmed)) return categoryCache.get(trimmed)!;
+
+  const existing = await prisma.category.findUnique({ where: { name: trimmed } });
+  if (existing) {
+    categoryCache.set(trimmed, existing.id);
+    return existing.id;
+  }
+
+  const created = await prisma.category.create({ data: { name: trimmed } });
+  categoryCache.set(trimmed, created.id);
+  return created.id;
+}
 
 function readExcelRows<T extends Record<string, unknown>>(filePath: string): T[] {
   const workbook = XLSX.readFile(filePath, { cellDates: false });
@@ -176,6 +196,8 @@ async function upsertProductWithStock(
   const priceUsd = priceTl > 0 ? priceTl / EXCHANGE_RATE : 0;
   const barcodeRaw = optionalString(row.Barkod);
   const quantity = asNumber(row.MevcutStok ?? row.Bakiye, 0);
+  const categoryName = optionalString(row.Kategori);
+  const categoryId = categoryName ? await findOrCreateCategoryId(categoryName) : null;
 
   const productData: Prisma.ProductCreateInput = {
     sku,
@@ -183,6 +205,7 @@ async function upsertProductWithStock(
     costPrice,
     priceTl,
     priceUsd,
+    ...(categoryId ? { category: { connect: { id: categoryId } } } : {}),
     ...(barcodeRaw ? { barcode: barcodeRaw } : {}),
   };
 
@@ -196,6 +219,7 @@ async function upsertProductWithStock(
         costPrice,
         priceTl,
         priceUsd,
+        ...(categoryName != null ? { categoryId } : {}),
         ...(barcodeRaw ? { barcode: barcodeRaw } : { barcode: null }),
       },
       create: productData,

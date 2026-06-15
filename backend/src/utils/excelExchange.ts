@@ -5,6 +5,7 @@ export type ImportResult = {
   created: number;
   updated: number;
   skipped: number;
+  categoriesCreated?: number;
   errors: string[];
 };
 
@@ -129,15 +130,41 @@ export async function importCustomersExcel(
 }
 
 type ProductExcelRow = {
+  Id?: string | number;
   StokKodu?: string | number;
   StokAdi?: string;
+  Kategori?: string;
+  Marka?: string;
+  Model?: string;
   Barkod?: string | number;
   AlisFiyati?: string | number;
   SatisFiyati?: string | number;
   SatisUsd?: string | number;
   MerkezDepo?: string | number;
   CinIadeDepo?: string | number;
+  Bakiye?: string | number;
 };
+
+async function findOrCreateCategory(
+  tx: Prisma.TransactionClient,
+  rawName: string,
+  cache: Map<string, number>,
+  categoriesCreated: { count: number }
+): Promise<number> {
+  const name = rawName.trim();
+  if (cache.has(name)) return cache.get(name)!;
+
+  const existing = await tx.category.findUnique({ where: { name } });
+  if (existing) {
+    cache.set(name, existing.id);
+    return existing.id;
+  }
+
+  const created = await tx.category.create({ data: { name } });
+  cache.set(name, created.id);
+  categoriesCreated.count += 1;
+  return created.id;
+}
 
 async function getDepotIds(prisma: PrismaClient) {
   const merkez = await prisma.branch.findFirst({
@@ -179,6 +206,7 @@ export async function exportProductsExcel(prisma: PrismaClient): Promise<Buffer>
   const products = await prisma.product.findMany({
     orderBy: { sku: 'asc' },
     include: {
+      category: { select: { name: true } },
       stocks: { include: { branch: { select: { name: true } } } },
     },
   });
@@ -194,12 +222,14 @@ export async function exportProductsExcel(prisma: PrismaClient): Promise<Buffer>
     return {
       StokKodu: p.sku,
       StokAdi: p.name,
+      Kategori: p.category?.name ?? '',
       Barkod: p.barcode ?? '',
       AlisFiyati: p.costPrice,
       SatisFiyati: p.priceTl,
       SatisUsd: p.priceUsd,
       MerkezDepo: merkez,
       CinIadeDepo: cinIade,
+      Bakiye: merkez,
     };
   });
 
@@ -218,6 +248,8 @@ export async function importProductsExcel(
   let updated = 0;
   let skipped = 0;
   const errors: string[] = [];
+  const categoryCache = new Map<string, number>();
+  const categoriesCreated = { count: 0 };
 
   for (const [index, row] of rows.entries()) {
     const sku = asString(row.StokKodu);
@@ -229,18 +261,32 @@ export async function importProductsExcel(
       continue;
     }
 
+    const categoryName = optionalString(row.Kategori);
     const costPrice = asNumber(row.AlisFiyati, 0);
     const priceTl = asNumber(row.SatisFiyati, 0);
     const priceUsd =
       asNumber(row.SatisUsd, 0) || (priceTl > 0 ? priceTl / 46.37 : 0);
     const barcodeRaw = optionalString(row.Barkod);
-    const merkezQty = asNumber(row.MerkezDepo, 0);
+    const merkezQty = asNumber(row.MerkezDepo ?? row.Bakiye, 0);
     const cinIadeQty = asNumber(row.CinIadeDepo, 0);
 
     try {
       const existing = await prisma.product.findUnique({ where: { sku } });
 
       await prisma.$transaction(async (tx) => {
+        let categoryId: number | undefined;
+        if (categoryName) {
+          categoryId = await findOrCreateCategory(
+            tx,
+            categoryName,
+            categoryCache,
+            categoriesCreated
+          );
+        }
+
+        const categoryUpdate =
+          categoryName != null ? { categoryId: categoryId ?? null } : {};
+
         const product = existing
           ? await tx.product.update({
               where: { sku },
@@ -249,6 +295,7 @@ export async function importProductsExcel(
                 costPrice,
                 priceTl,
                 priceUsd,
+                ...categoryUpdate,
                 ...(barcodeRaw ? { barcode: barcodeRaw } : { barcode: null }),
               },
             })
@@ -259,12 +306,15 @@ export async function importProductsExcel(
                 costPrice,
                 priceTl,
                 priceUsd,
+                ...categoryUpdate,
                 ...(barcodeRaw ? { barcode: barcodeRaw } : {}),
               },
             });
 
         await upsertStock(tx, product.id, merkezId, merkezQty);
-        await upsertStock(tx, product.id, cinIadeId, cinIadeQty);
+        if (row.CinIadeDepo != null && row.CinIadeDepo !== '') {
+          await upsertStock(tx, product.id, cinIadeId, cinIadeQty);
+        }
       });
 
       if (existing) updated += 1;
@@ -279,7 +329,13 @@ export async function importProductsExcel(
     }
   }
 
-  return { created, updated, skipped, errors };
+  return {
+    created,
+    updated,
+    skipped,
+    categoriesCreated: categoriesCreated.count,
+    errors,
+  };
 }
 
 type InvoiceExcelRow = {

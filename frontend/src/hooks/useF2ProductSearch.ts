@@ -50,6 +50,7 @@ export function useF2ProductSearch(options: {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const lastF2TriggerRef = useRef(0);
 
   const resetSearch = useCallback(() => {
     setSearchQuery('');
@@ -60,19 +61,18 @@ export function useF2ProductSearch(options: {
     setHasMore(false);
   }, []);
 
-  const openSearch = useCallback(() => {
-    resetSearch();
-  }, [resetSearch]);
-
-  const closeSearch = useCallback(() => {
-    resetSearch();
-  }, [resetSearch]);
+  useEffect(() => {
+    if (f2Trigger > lastF2TriggerRef.current) {
+      lastF2TriggerRef.current = f2Trigger;
+      resetSearch();
+    }
+  }, [f2Trigger, resetSearch]);
 
   useEffect(() => {
-    if (f2Trigger > 0) {
-      openSearch();
+    if (!open) {
+      resetSearch();
     }
-  }, [f2Trigger, openSearch]);
+  }, [open, resetSearch]);
 
   const fetchPage = useCallback(
     async (pageNumber: number, query: string, append: boolean) => {
@@ -132,12 +132,6 @@ export function useF2ProductSearch(options: {
     };
   }, [open, searchQuery, partyId, fetchPage]);
 
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => searchInputRef.current?.focus(), 50);
-    }
-  }, [open]);
-
   const loadMore = useCallback(() => {
     if (!open || loading || loadingMore || !hasMore) return;
     void fetchPage(page + 1, searchQuery.trim(), true);
@@ -178,10 +172,7 @@ export function useF2ProductSearch(options: {
     hasMore,
     searchInputRef,
     listRef,
-    openSearch,
-    closeSearch,
     handleListScroll,
     navigateFocus,
-    resetSearch,
   };
 }

@@ -316,19 +316,17 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
 
   const openF2Modal = useCallback(() => {
     setF2Modal(true);
-    f2.openSearch();
-  }, [f2]);
+  }, []);
 
   const closeF2Modal = useCallback(() => {
     setF2Modal(false);
-    f2.closeSearch();
-  }, [f2]);
+  }, []);
 
   useEffect(() => {
     if (f2Trigger > 0) {
-      openF2Modal();
+      setF2Modal(true);
     }
-  }, [f2Trigger, openF2Modal]);
+  }, [f2Trigger]);
 
   const resolveProductUsd = useCallback(
     (product: F2Product | Product) => {

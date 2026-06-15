@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from 'react';
+import { useEffect, type ReactNode, type RefObject } from 'react';
 import { X } from 'lucide-react';
 
 type ProductSearchPopoverProps = {
@@ -41,13 +41,38 @@ export default function ProductSearchPopover({
   emptyHint = 'Ürünler yükleniyor...',
   showEmpty = true,
 }: ProductSearchPopoverProps) {
+  useEffect(() => {
+    if (!open) return;
+
+    const focusInput = () => searchInputRef.current?.focus();
+    focusInput();
+    const timer = window.setTimeout(focusInput, 0);
+    const raf = window.requestAnimationFrame(focusInput);
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape, true);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener('keydown', handleEscape, true);
+    };
+  }, [open, onClose, searchInputRef]);
+
   if (!open) return null;
 
   return (
     <div
       className="fixed top-[4.25rem] left-3 right-3 sm:left-auto sm:right-5 z-50 w-auto sm:w-[22rem] md:w-[26rem] rounded-xl border border-slate-200/90 bg-white shadow-xl shadow-slate-900/15 ring-1 ring-slate-900/5 overflow-hidden"
-      onKeyDown={onKeyDown}
       role="dialog"
+      aria-modal="true"
       aria-label={title}
     >
       <div className={`${headerClassName} px-3 py-2 text-white flex items-center justify-between gap-2`}>
@@ -74,6 +99,7 @@ export default function ProductSearchPopover({
           onKeyDown={onKeyDown}
           placeholder="SKU, barkod veya ürün adı..."
           autoComplete="off"
+          autoFocus
           className="w-full rounded-lg border border-slate-300 bg-white text-sm px-3 py-2 focus:border-indigo-500 focus:ring-indigo-500"
         />
       </div>

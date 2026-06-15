@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.5` · `since1907/akgun-frontend:v1.5`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.7.3` · `since1907/akgun-frontend:v1.7.3`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -56,6 +56,7 @@ Menü tanımları: `frontend/src/lib/navigation.ts` · URL: `?page=sales`, `?pag
 
 ### Hızlı Satış (F2) — v1.7+
 - **F2** yalnızca Satış / Alış / İade ekranındayken açılır (sayfa değiştirmez)
+- Panel açılınca arama kutusuna **otomatik odaklanır**; klavyeyle doğrudan yazılabilir
 - Açılınca **tüm ürünler** listelenir (sayfalı, kaydırınca devamı yüklenir)
 - **↑ / ↓** ve **PgUp / PgDn** ile klavyede gezinme; seçili satır otomatik kayar
 - **Enter** sepete ekler, **Esc** kapatır
@@ -117,6 +118,7 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 
 ### Fatura Listesi
 - Tek ekranda **Tümü / Satış / Alış / İade** filtresi
+- **Arama kutusu** — fatura no, müşteri adı/kodu, ödeme, personel ve açıklama ile anlık filtreleme (v1.7.2)
 - Dashboard kısayolları filtreli listeye yönlendirir
 - **Excel İndir / Excel Yükle** ile toplu fatura üst bilgisi güncelleme (v1.7)
 
@@ -127,10 +129,14 @@ Müşteri carileri, stoklar ve faturalar için **indir → Excel'de düzenle →
 | Ekran | İndir | Yükle | Excel sütunları |
 |-------|-------|-------|-----------------|
 | **Müşteri Listesi** | Tüm cariler | Yeni ekle / mevcut güncelle | `CariKodu`, `CariAdi`, `YetkiliAdi`, `Adres`, `Ilce`, `Il`, `Email`, `Gsm`, `VergiDairesi`, `VergiTcNo`, `KrediLimiti`, `Bakiye`* |
-| **Stok Listesi** | Tüm ürünler + depo miktarları | Yeni ekle / mevcut güncelle | `StokKodu`, `StokAdi`, `Barkod`, `AlisFiyati`, `SatisFiyati`, `SatisUsd`, `MerkezDepo`, `CinIadeDepo` |
+| **Stok Listesi** | Tüm ürünler + depo miktarları | Yeni ekle / mevcut güncelle | `StokKodu`, `StokAdi`, `Kategori`*, `Barkod`, `AlisFiyati`, `SatisFiyati`, `SatisUsd`, `MerkezDepo` / `Bakiye`, `CinIadeDepo` |
 | **Fatura Listesi** | Faturalar + Kalemler (2 sayfa) | Yalnızca mevcut faturaların üst bilgisi | `FaturaNo`, `Odeme`, `Personel`, `Aciklama`, `Teslimat` |
 
 \* **Bakiye** sütunu dışa aktarımda bilgi amaçlıdır; içe aktarmada **değiştirilmez** (cari bakiye fatura/tahsilat ile hesaplanır).
+
+\* **Kategori** sütunu içe aktarmada yoksa oluşturulur ve ürüne bağlanır (`TAMİR GEREÇLERİ` gibi).
+
+**Stok Excel formatı:** Harici sistemden gelen dosyalarda `Id`, `Marka`, `Model`, `AlisAdedi`, `SatisAdedi` gibi ek sütunlar olabilir; bunlar yok sayılır. Stok miktarı için `MerkezDepo` veya `Bakiye` kullanılır.
 
 **API uçları:**
 
@@ -301,6 +307,8 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.6 | Düzenlenebilir cari/stok/fatura, fatura bazlı iade, F2 kompakt arama |
 | v1.7 | Excel indir/yükle — müşteri, stok, fatura toplu güncelleme |
 | v1.7.1 | F2 klavye gezinme, ön sipariş listesi, stok hareketi ürün arama, menü yeni sekme, F2 sayfa bağlamı |
+| v1.7.2 | F2 arama kutusu yazma/odak düzeltmesi, Esc ve ✕ ile kapanma, fatura listesi arama |
+| v1.7.3 | Stok Excel içe aktarımda Kategori otomatik oluşturma, Bakiye sütunu desteği |
 
 ---
 

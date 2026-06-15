@@ -2443,10 +2443,15 @@ app.post('/api/products/import/excel', async (request, reply) => {
   const buffer = await upload.toBuffer();
   const result = await importProductsExcel(prisma, buffer);
 
+  const categoryNote =
+    result.categoriesCreated && result.categoriesCreated > 0
+      ? `, ${result.categoriesCreated} yeni kategori`
+      : '';
+
   return {
     success: true,
     data: result,
-    message: `${result.created} yeni, ${result.updated} güncellendi.`,
+    message: `${result.created} yeni, ${result.updated} güncellendi${categoryNote}.`,
   };
 });
 
