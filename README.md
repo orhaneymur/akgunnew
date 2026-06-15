@@ -27,22 +27,22 @@ akgunteknik/
 
 ---
 
-## Menü Yapısı (v1.5 — 23 canlı ekran)
+## Menü Yapısı (v1.7 — 24 canlı ekran)
 
-Placeholder sayfalar kaldırıldı; sidebar yalnızca çalışan modülleri listeler.
+Placeholder sayfalar kaldırıldı; sidebar yalnızca çalışan modülleri listeler. **Alt menü öğeleri yeni tarayıcı sekmesinde açılır** — aynı anda satış, alış ve iade yapabilirsiniz.
 
 | Grup | Ekranlar |
 |------|----------|
 | **Ana Sayfa** | Dashboard (5 hızlı erişim kartı) |
-| **Satış İşlemleri** | Satış Yap (F2), Satış İade |
+| **Satış İşlemleri** | Satış Yap (F2), Satış İade, **Ön Siparişler** |
 | **Alış İşlemleri** | Alış Faturası |
-| **Stok İşlemleri** | Stok Listesi, Depo Transfer, Stok Hareketleri, Stok Kartı, Barkod Etiket |
+| **Stok İşlemleri** | Stok Listesi, Depo Transfer, **Stok Hareketleri (ürün arama)**, Stok Kartı, Barkod Etiket |
 | **Müşteri İşlemleri** | Müşteri Listesi, Tahsilat / Ödeme, Müşteri Bakiye |
-| **Raporlar** | Kâr-Zarar, Stok Değeri, Kasa Raporu, Müşteri Ekstre |
+| **Raporlar** | İşletme Özeti, Kâr-Zarar, Stok Değeri, Kasa Raporu, Müşteri Ekstre |
 | **Tanımlar** | Ürün Tanımları, Kasa Tanımları, Personel Tanımları |
 | **Faturalar** | Fatura Listesi (filtre: Tümü / Satış / Alış / İade) |
 
-Menü tanımları: `frontend/src/lib/navigation.ts`
+Menü tanımları: `frontend/src/lib/navigation.ts` · URL: `?page=sales`, `?page=pre-orders` vb.
 
 ---
 
@@ -54,12 +54,13 @@ Menü tanımları: `frontend/src/lib/navigation.ts`
 - Renkli **fatura akışı** ve son **kasa hareketleri**
 - **5 hızlı erişim kartı:** Satış Yap, Alış Faturası, İade Al, Stok Kartı Oluştur, Fatura Listesi
 
-### Hızlı Satış (F2)
-- **F2** tuşu ile her yerden satış ekranına geçiş ve arama modalı
-- Büyük/küçük harfe ve **Türkçe karaktere duyarsız** ürün arama motoru
-- **↑ / ↓** ile sonuçlarda gezinme, **Enter** ile sepete ekleme, **Esc** ile kapatma
-- Müşterinin **Son Satın Alma Fiyatını** otomatik getirme ve sepet satırında **Maliyet | Liste** kılavuzu
-- Nakit / Cari ödeme, şube ve kasa seçimi
+### Hızlı Satış (F2) — v1.7+
+- **F2** yalnızca Satış / Alış / İade ekranındayken açılır (sayfa değiştirmez)
+- Açılınca **tüm ürünler** listelenir (sayfalı, kaydırınca devamı yüklenir)
+- **↑ / ↓** ve **PgUp / PgDn** ile klavyede gezinme; seçili satır otomatik kayar
+- **Enter** sepete ekler, **Esc** kapatır
+- Müşteri/tedarikçi seçiliyse **son işlem fiyatı** geçerli olur; listede güncel satış fiyatı + “Son fiyat” satırı görünür
+- Türkçe karaktere duyarsız arama
 
 ### Alış Faturası (Mal Kabul)
 - Tedarikçiden mal girişi formu (`PurchaseCreate.tsx`)
@@ -93,6 +94,8 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 
 - Tüm üst bilgiler (vade, ödeme, personel, açıklama, ön sipariş) kaydedilir
 - **`isPreOrder: true`** → fatura oluşur, **MERKEZ_DEPO stok düşümü yapılmaz**
+- Ön siparişleri görüntüleme: menü **Satış İşlemleri → Ön Siparişler** veya `?page=pre-orders`
+- Fatura listesinde **Ön Sipariş** etiketi ile işaretlenir
 - Nakit / EFT / Kart → kasa bakiyesi ve tahsilat hareketi TL tutarıyla artar
 - Cari → müşteri bakiyesi TL tutarıyla artar
 
@@ -115,6 +118,32 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 ### Fatura Listesi
 - Tek ekranda **Tümü / Satış / Alış / İade** filtresi
 - Dashboard kısayolları filtreli listeye yönlendirir
+- **Excel İndir / Excel Yükle** ile toplu fatura üst bilgisi güncelleme (v1.7)
+
+### Excel Toplu Aktarım (v1.7.0)
+
+Müşteri carileri, stoklar ve faturalar için **indir → Excel'de düzenle → yükle** akışı eklendi. Bileşen: `frontend/src/components/ExcelActions.tsx` · Backend: `backend/src/utils/excelExchange.ts`
+
+| Ekran | İndir | Yükle | Excel sütunları |
+|-------|-------|-------|-----------------|
+| **Müşteri Listesi** | Tüm cariler | Yeni ekle / mevcut güncelle | `CariKodu`, `CariAdi`, `YetkiliAdi`, `Adres`, `Ilce`, `Il`, `Email`, `Gsm`, `VergiDairesi`, `VergiTcNo`, `KrediLimiti`, `Bakiye`* |
+| **Stok Listesi** | Tüm ürünler + depo miktarları | Yeni ekle / mevcut güncelle | `StokKodu`, `StokAdi`, `Barkod`, `AlisFiyati`, `SatisFiyati`, `SatisUsd`, `MerkezDepo`, `CinIadeDepo` |
+| **Fatura Listesi** | Faturalar + Kalemler (2 sayfa) | Yalnızca mevcut faturaların üst bilgisi | `FaturaNo`, `Odeme`, `Personel`, `Aciklama`, `Teslimat` |
+
+\* **Bakiye** sütunu dışa aktarımda bilgi amaçlıdır; içe aktarmada **değiştirilmez** (cari bakiye fatura/tahsilat ile hesaplanır).
+
+**API uçları:**
+
+| Method | Adres |
+|--------|-------|
+| GET | `/api/customers/export/excel` |
+| POST | `/api/customers/import/excel` (multipart `file`) |
+| GET | `/api/products/export/excel` |
+| POST | `/api/products/import/excel` |
+| GET | `/api/sales/invoices/export/excel?type=` |
+| POST | `/api/sales/invoices/import/excel` |
+
+**Kullanım:** İlgili listede sağ üstte **Excel İndir** → dosyayı düzenle → **Excel Yükle**. Sonuç mesajında kaç kayıt eklendi/güncellendi gösterilir; hatalı satırlar özetlenir.
 
 ### Mobil Arayüz (v1.3+)
 - Hamburger menü, kompakt üst bar, mobil uyumlu padding
@@ -201,8 +230,14 @@ http://localhost:5173
 | POST | `/api/products` | Stok kartı oluştur |
 | GET | `/api/products?search=&page=&limit=` | Sayfalı stok listesi |
 | GET | `/api/customers?search=&page=&limit=` | Sayfalı müşteri listesi |
+| GET | `/api/customers/export/excel` | Tüm carileri Excel indir |
+| POST | `/api/customers/import/excel` | Excel'den cari toplu güncelle |
+| GET | `/api/products/export/excel` | Tüm stokları Excel indir |
+| POST | `/api/products/import/excel` | Excel'den stok toplu güncelle |
+| GET | `/api/sales/invoices/export/excel` | Faturaları Excel indir |
+| POST | `/api/sales/invoices/import/excel` | Fatura üst bilgisi toplu güncelle |
 | GET | `/api/reports/profit` | Kâr-zarar raporu |
-| POST | *(script)* `src/utils/importAllData.ts` | Excel toplu aktarım |
+| POST | *(script)* `src/utils/importAllData.ts` | İlk kurulum Excel aktarımı (offline) |
 
 ---
 
@@ -263,6 +298,9 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.3 | Mobil UI (hamburger menü) |
 | v1.4 | Menü sadeleştirme, tek filtreli fatura listesi |
 | v1.5 | Dashboard grafikleri, depo transfer, raporlar, JWT auth, K8s ingress |
+| v1.6 | Düzenlenebilir cari/stok/fatura, fatura bazlı iade, F2 kompakt arama |
+| v1.7 | Excel indir/yükle — müşteri, stok, fatura toplu güncelleme |
+| v1.7.1 | F2 klavye gezinme, ön sipariş listesi, stok hareketi ürün arama, menü yeni sekme, F2 sayfa bağlamı |
 
 ---
 

@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { Printer, Save, Search, ShoppingCart, X } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
+import F2ProductList, { resolveSalesUnitPriceUsd } from '../components/F2ProductList';
+import { useF2ProductSearch, type F2Product } from '../hooks/useF2ProductSearch';
+import { useF2KeyboardNav } from '../hooks/useF2KeyboardNav';
 import {
   API_BASE,
   DEFAULT_USD,
@@ -108,18 +111,20 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
   const [shouldPrint, setShouldPrint] = useState(false);
   const [processedBy, setProcessedBy] = useState('');
   const [f2Modal, setF2Modal] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Product[]>([]);
-  const [focusedIndex, setFocusedIndex] = useState(-1);
-  const [searchLoading, setSearchLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const customerSearchRef = useRef<HTMLInputElement>(null);
   const quantityInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const customerDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAddedRowId = useRef<string | null>(null);
+
+  const f2 = useF2ProductSearch({
+    open: f2Modal,
+    f2Trigger,
+    context: 'sales',
+    partyId: selectedCustomer?.id ?? null,
+    exchangeRate,
+  });
 
   const storeBranch = useMemo(
     () =>
@@ -301,57 +306,6 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
   }, [selectedCustomer?.id]);
 
   useEffect(() => {
-    if (!f2Modal) return;
-
-    const query = searchQuery.trim();
-    if (!query) {
-      setSearchResults([]);
-      setFocusedIndex(-1);
-      return;
-    }
-
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-
-    searchDebounceRef.current = setTimeout(async () => {
-      setSearchLoading(true);
-      try {
-        const params: Record<string, string> = {
-          search: query,
-          exchangeRate: String(exchangeRate),
-        };
-        if (selectedCustomer) {
-          params.customerId = String(selectedCustomer.id);
-        }
-
-        const response = await axios.get<{ success: boolean; data: Product[] }>(
-          `${API_BASE}/api/sales/products`,
-          { params }
-        );
-
-        if (response.data.success) {
-          setSearchResults(response.data.data);
-          setFocusedIndex(response.data.data.length > 0 ? 0 : -1);
-        }
-      } catch {
-        setSearchResults([]);
-        setFocusedIndex(-1);
-      } finally {
-        setSearchLoading(false);
-      }
-    }, 300);
-
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    };
-  }, [searchQuery, f2Modal, selectedCustomer, exchangeRate]);
-
-  useEffect(() => {
-    if (f2Modal) {
-      setTimeout(() => searchInputRef.current?.focus(), 50);
-    }
-  }, [f2Modal]);
-
-  useEffect(() => {
     if (lastAddedRowId.current) {
       const ref = quantityInputRefs.current[lastAddedRowId.current];
       ref?.focus();
@@ -362,17 +316,13 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
 
   const openF2Modal = useCallback(() => {
     setF2Modal(true);
-    setSearchQuery('');
-    setSearchResults([]);
-    setFocusedIndex(-1);
-  }, []);
+    f2.openSearch();
+  }, [f2]);
 
   const closeF2Modal = useCallback(() => {
     setF2Modal(false);
-    setSearchQuery('');
-    setSearchResults([]);
-    setFocusedIndex(-1);
-  }, []);
+    f2.closeSearch();
+  }, [f2]);
 
   useEffect(() => {
     if (f2Trigger > 0) {
@@ -381,20 +331,21 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
   }, [f2Trigger, openF2Modal]);
 
   const resolveProductUsd = useCallback(
-    (product: Product) => {
-      const unitPriceUsd =
-        product.lastSoldPriceUsd != null
-          ? product.lastSoldPriceUsd
-          : product.priceUsd;
+    (product: F2Product | Product) => {
+      const unitPriceUsd = resolveSalesUnitPriceUsd(
+        product,
+        Boolean(selectedCustomer),
+        exchangeRate
+      );
       const costUsd =
         product.costUsd ?? product.costPrice / (exchangeRate > 0 ? exchangeRate : 1);
       return { unitPriceUsd, costUsd };
     },
-    [exchangeRate]
+    [exchangeRate, selectedCustomer]
   );
 
   const addProductToCart = useCallback(
-    (product: Product) => {
+    (product: F2Product | Product) => {
       const { unitPriceUsd, costUsd } = resolveProductUsd(product);
 
       setCart((prev) => {
@@ -428,44 +379,14 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
     [closeF2Modal, resolveProductUsd]
   );
 
-  const handleModalKeyDown = useCallback(
-    (event: React.KeyboardEvent) => {
-      if (!f2Modal) return;
-
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        if (searchResults.length === 0) return;
-        setFocusedIndex((prev) =>
-          prev < 0 ? 0 : Math.min(prev + 1, searchResults.length - 1)
-        );
-      }
-
-      if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        if (searchResults.length === 0) return;
-        setFocusedIndex((prev) => Math.max(prev <= 0 ? 0 : prev - 1, 0));
-      }
-
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        const index =
-          focusedIndex >= 0
-            ? focusedIndex
-            : searchResults.length === 1
-              ? 0
-              : -1;
-        if (index >= 0 && searchResults[index]) {
-          addProductToCart(searchResults[index]);
-        }
-      }
-
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeF2Modal();
-      }
-    },
-    [f2Modal, searchResults, focusedIndex, addProductToCart, closeF2Modal]
-  );
+  const handleModalKeyDown = useF2KeyboardNav({
+    open: f2Modal,
+    results: f2.results,
+    focusedIndex: f2.focusedIndex,
+    navigateFocus: f2.navigateFocus,
+    onSelect: addProductToCart,
+    onClose: closeF2Modal,
+  });
 
   const updateCartItem = (
     rowId: string,
@@ -1028,50 +949,28 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
         title="Hızlı Stok Arama"
         hint="↑↓ gezin · Enter ekle · Esc kapat"
         headerClassName="bg-indigo-600"
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchInputRef={searchInputRef}
+        searchQuery={f2.searchQuery}
+        onSearchChange={f2.setSearchQuery}
+        searchInputRef={f2.searchInputRef}
+        listRef={f2.listRef}
+        onListScroll={f2.handleListScroll}
         onKeyDown={handleModalKeyDown}
-        searchLoading={searchLoading}
-        showEmpty={!searchQuery}
-        emptyHint="Aramaya başlayın veya barkod okutun."
+        searchLoading={f2.loading}
+        loadingMore={f2.loadingMore}
+        footer={`${f2.results.length.toLocaleString('tr-TR')} / ${f2.totalCount.toLocaleString('tr-TR')} ürün`}
+        showEmpty={!f2.loading && f2.results.length === 0}
+        emptyHint={f2.searchQuery ? 'Sonuç bulunamadı.' : 'Ürün bulunamadı.'}
       >
-        {!searchLoading && searchResults.length > 0 && (
-          <ul className="divide-y divide-slate-100">
-            {searchResults.map((product, index) => (
-              <li
-                key={product.id}
-                onClick={() => addProductToCart(product)}
-                onMouseEnter={() => setFocusedIndex(index)}
-                className={`px-3 py-2 cursor-pointer flex items-center justify-between gap-2 transition-colors ${
-                  focusedIndex === index
-                    ? 'bg-indigo-50 border-l-2 border-indigo-600'
-                    : 'hover:bg-slate-50 border-l-2 border-transparent'
-                }`}
-              >
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-900 truncate">
-                    {product.name}
-                  </p>
-                  <p className="text-[10px] text-slate-500">{product.sku}</p>
-                  {product.lastSoldPriceUsd != null && (
-                    <p className="text-[10px] text-amber-600">
-                      Son: {formatUsd(product.lastSoldPriceUsd)}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-xs font-bold text-slate-900 tabular-nums">
-                    {formatUsd(product.priceUsd)}
-                  </p>
-                  <p className="text-[10px] text-slate-500">{formatMoney(product.priceTl)}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        {!searchLoading && searchQuery && searchResults.length === 0 && (
-          <p className="px-3 py-6 text-center text-slate-400 text-xs">Sonuç bulunamadı.</p>
+        {!f2.loading && f2.results.length > 0 && (
+          <F2ProductList
+            products={f2.results}
+            focusedIndex={f2.focusedIndex}
+            onFocusIndex={f2.setFocusedIndex}
+            onSelect={addProductToCart}
+            partySelected={Boolean(selectedCustomer)}
+            priceMode="usd"
+            accentClass="indigo"
+          />
         )}
       </ProductSearchPopover>
     </div>

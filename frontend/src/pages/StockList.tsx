@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
+import ExcelActions from '../components/ExcelActions';
 import {
   API_BASE,
   ensureArray,
@@ -157,7 +158,16 @@ export default function StockList({ onNotify }: StockListProps = {}) {
           </div>
         </div>
 
-        <div className="relative w-full sm:w-96">
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
+          <ExcelActions
+            exportPath="/api/products/export/excel"
+            importPath="/api/products/import/excel"
+            exportFilename="stoklar.xlsx"
+            onImported={() => loadProducts(search, page)}
+            onNotify={notify}
+            hint="MerkezDepo ve CinIadeDepo miktarları güncellenir."
+          />
+          <div className="relative w-full sm:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
@@ -166,6 +176,7 @@ export default function StockList({ onNotify }: StockListProps = {}) {
             placeholder="Ürün adı, SKU veya barkod..."
             className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-indigo-500 focus:ring-indigo-500 shadow-sm"
           />
+          </div>
         </div>
       </div>
 

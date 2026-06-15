@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { History } from 'lucide-react';
+import { History, Search } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
 import {
   API_BASE,
@@ -25,17 +25,31 @@ type MovementRow = {
 
 export default function StockMovements() {
   const [rows, setRows] = useState<MovementRow[]>([]);
+  const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const load = async () => {
+    setPage(1);
+  }, [search]);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
+        const params: Record<string, string | number> = {
+          page,
+          limit: LIST_PAGE_SIZE,
+        };
+        if (search.trim()) params.search = search.trim();
+
         const res = await axios.get<PaginatedListResponse<MovementRow>>(
           `${API_BASE}/api/reports/stock-history`,
-          { params: { page, limit: LIST_PAGE_SIZE } }
+          { params }
         );
         if (res.data.success) {
           setRows(ensureArray(res.data.data));
@@ -43,22 +57,41 @@ export default function StockMovements() {
         }
       } catch {
         setRows([]);
+        setTotalCount(0);
       } finally {
         setLoading(false);
       }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-    load();
-  }, [page]);
+  }, [page, search]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="rounded-xl bg-cyan-600 p-2.5 text-white">
-          <History className="h-5 w-5" />
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-cyan-600 p-2.5 text-white">
+            <History className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Stok Hareketleri</h1>
+            <p className="text-sm text-slate-500">
+              Ürün ara — satış, alış ve iade kaynaklı son hareketler
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Stok Hareketleri</h1>
-          <p className="text-sm text-slate-500">Satış, alış ve iade kaynaklı hareketler</p>
+
+        <div className="relative w-full sm:w-96">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="SKU, barkod veya ürün adı..."
+            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm shadow-sm focus:border-cyan-500 focus:ring-cyan-500"
+          />
         </div>
       </div>
 
@@ -127,7 +160,7 @@ export default function StockMovements() {
               {!loading && rows.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">
-                    Hareket bulunamadı.
+                    {search.trim() ? 'Bu ürün için hareket bulunamadı.' : 'Hareket bulunamadı.'}
                   </td>
                 </tr>
               )}

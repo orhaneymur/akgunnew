@@ -10,8 +10,12 @@ type ProductSearchPopoverProps = {
   searchQuery: string;
   onSearchChange: (value: string) => void;
   searchInputRef: RefObject<HTMLInputElement | null>;
+  listRef?: RefObject<HTMLDivElement | null>;
+  onListScroll?: () => void;
   onKeyDown: (event: React.KeyboardEvent) => void;
   searchLoading?: boolean;
+  loadingMore?: boolean;
+  footer?: string;
   children: ReactNode;
   emptyHint?: string;
   showEmpty?: boolean;
@@ -22,15 +26,19 @@ export default function ProductSearchPopover({
   open,
   onClose,
   title = 'Hızlı Stok Arama',
-  hint = '↑↓ · Enter · Esc',
+  hint = '↑↓ · PgUp/Dn · Enter · Esc',
   headerClassName = 'bg-indigo-600',
   searchQuery,
   onSearchChange,
   searchInputRef,
+  listRef,
+  onListScroll,
   onKeyDown,
   searchLoading = false,
+  loadingMore = false,
+  footer,
   children,
-  emptyHint = 'Aramaya başlayın veya barkod okutun.',
+  emptyHint = 'Ürünler yükleniyor...',
   showEmpty = true,
 }: ProductSearchPopoverProps) {
   if (!open) return null;
@@ -63,21 +71,34 @@ export default function ProductSearchPopover({
           type="text"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
+          onKeyDown={onKeyDown}
           placeholder="SKU, barkod veya ürün adı..."
           autoComplete="off"
           className="w-full rounded-lg border border-slate-300 bg-white text-sm px-3 py-2 focus:border-indigo-500 focus:ring-indigo-500"
         />
       </div>
 
-      <div className="max-h-[min(40vh,14rem)] overflow-y-auto">
+      <div
+        ref={listRef}
+        onScroll={onListScroll}
+        className="max-h-[min(60vh,24rem)] overflow-y-auto"
+      >
         {searchLoading && (
-          <p className="px-3 py-6 text-center text-slate-400 text-xs">Aranıyor...</p>
+          <p className="px-3 py-6 text-center text-slate-400 text-xs">Yükleniyor...</p>
         )}
         {!searchLoading && children}
-        {!searchLoading && showEmpty && !searchQuery && (
+        {loadingMore && (
+          <p className="px-3 py-2 text-center text-slate-400 text-xs">Daha fazla yükleniyor...</p>
+        )}
+        {!searchLoading && showEmpty && (
           <p className="px-3 py-6 text-center text-slate-400 text-xs">{emptyHint}</p>
         )}
       </div>
+      {footer ? (
+        <div className="border-t border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] text-slate-500 text-right">
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 }

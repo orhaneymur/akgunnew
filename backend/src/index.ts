@@ -1,11 +1,20 @@
 import 'dotenv/config';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import jwt from '@fastify/jwt';
 import bcrypt from 'bcrypt';
 import Fastify from 'fastify';
 import type { Prisma } from '@prisma/client';
 import { prisma } from './lib/prisma.js';
+import {
+  exportCustomersExcel,
+  exportInvoicesExcel,
+  exportProductsExcel,
+  importCustomersExcel,
+  importInvoicesExcel,
+  importProductsExcel,
+} from './utils/excelExchange.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -254,6 +263,266 @@ async function enrichInvoiceItemsWithReturnable<
     const returnableQty = Math.max(0, item.quantity - returnedQty);
     return { ...item, returnedQty, returnableQty };
   });
+}
+
+async function findReturnableInvoiceItem(customerId: number, productId: number) {
+  const items = await prisma.invoiceItem.findMany({
+    where: {
+      productId,
+      invoice: { customerId, type: 'SATIS' },
+    },
+    orderBy: { invoice: { createdAt: 'desc' } },
+    include: {
+      invoice: { select: { id: true, invoiceNo: true, createdAt: true } },
+      product: {
+        select: { id: true, sku: true, barcode: true, name: true },
+      },
+    },
+  });
+
+  const returnedMap = await getReturnedQtyMap(items.map((item) => item.id));
+
+  for (const item of items) {
+    const returnedQty = returnedMap.get(item.id) ?? 0;
+    const returnableQty = Math.max(0, item.quantity - returnedQty);
+    if (returnableQty > 0) {
+      return {
+        invoiceId: item.invoice.id,
+        invoiceNo: item.invoice.invoiceNo,
+        sourceInvoiceItemId: item.id,
+        unitPrice: toFloat(item.unitPrice),
+        returnableQty,
+        product: item.product,
+      };
+    }
+  }
+
+  return null;
+}
+
+async function getRecentSoldProducts(
+  limit: number,
+  customerId: number | null,
+  rate: number
+) {
+  const items = await prisma.invoiceItem.findMany({
+    where: {
+      invoice: {
+        type: 'SATIS',
+        ...(customerId ? { customerId } : {}),
+      },
+    },
+    orderBy: { invoice: { createdAt: 'desc' } },
+    take: limit * 5,
+    select: {
+      productId: true,
+      unitPrice: true,
+      product: {
+        select: {
+          id: true,
+          sku: true,
+          barcode: true,
+          name: true,
+          costPrice: true,
+          priceTl: true,
+          priceUsd: true,
+        },
+      },
+    },
+  });
+
+  const seen = new Set<number>();
+  const results: Array<{
+    id: number;
+    sku: string;
+    barcode: string | null;
+    name: string;
+    costPrice: number;
+    costUsd: number;
+    priceTl: number;
+    priceUsd: number;
+    lastSoldPrice: number;
+    lastSoldPriceUsd: number;
+    stocks: [];
+    merkezDepoQuantity: number;
+  }> = [];
+
+  for (const item of items) {
+    if (seen.has(item.productId)) continue;
+    seen.add(item.productId);
+
+    const product = item.product;
+    const lastSoldPrice = toFloat(item.unitPrice);
+    const priceUsd = toFloat(product.priceUsd);
+    const lastSoldPriceUsd =
+      lastSoldPrice > priceUsd * 4 ? lastSoldPrice / rate : lastSoldPrice;
+
+    results.push({
+      id: product.id,
+      sku: product.sku,
+      barcode: product.barcode,
+      name: product.name,
+      costPrice: toFloat(product.costPrice),
+      costUsd: toFloat(product.costPrice) / rate,
+      priceTl: toFloat(product.priceTl),
+      priceUsd,
+      lastSoldPrice,
+      lastSoldPriceUsd,
+      stocks: [],
+      merkezDepoQuantity: 0,
+    });
+
+    if (results.length >= limit) break;
+  }
+
+  return results;
+}
+
+function toPartyPriceUsd(
+  partyPriceTl: number | null,
+  priceUsd: number,
+  rate: number
+): number | null {
+  if (partyPriceTl == null) return null;
+  return partyPriceTl > priceUsd * 4 ? partyPriceTl / rate : partyPriceTl;
+}
+
+async function getLastPartyPriceMap(
+  productIds: number[],
+  customerId: number,
+  invoiceType: 'SATIS' | 'ALIS'
+): Promise<Map<number, number>> {
+  if (productIds.length === 0) return new Map();
+
+  const items = await prisma.invoiceItem.findMany({
+    where: {
+      productId: { in: productIds },
+      invoice: { customerId, type: invoiceType },
+    },
+    orderBy: { invoice: { createdAt: 'desc' } },
+    select: { productId: true, unitPrice: true },
+  });
+
+  const map = new Map<number, number>();
+  for (const item of items) {
+    if (!map.has(item.productId)) {
+      map.set(item.productId, toFloat(item.unitPrice));
+    }
+  }
+  return map;
+}
+
+const PRODUCT_SEARCH_SELECT = {
+  id: true,
+  sku: true,
+  barcode: true,
+  name: true,
+  costPrice: true,
+  priceTl: true,
+  priceUsd: true,
+  stocks: {
+    where: { branch: { name: DEPOT_NAMES.MERKEZ } },
+    select: {
+      quantity: true,
+      branch: { select: { id: true, name: true } },
+    },
+  },
+} as const;
+
+type ProductSearchRow = {
+  id: number;
+  sku: string;
+  barcode: string | null;
+  name: string;
+  costPrice: number;
+  priceTl: number;
+  priceUsd: number;
+  stocks: Array<{
+    quantity: unknown;
+    branch: { id: number; name: string };
+  }>;
+};
+
+function mapProductSearchExtras(
+  product: ProductSearchRow,
+  lastPartyPriceTl: number | null,
+  rate: number
+) {
+  const costUsd = toFloat(product.costPrice) / rate;
+  const priceUsd = toFloat(product.priceUsd);
+  const priceTl = toFloat(product.priceTl);
+  const lastPartyPriceUsd = toPartyPriceUsd(lastPartyPriceTl, priceUsd, rate);
+  const lastSoldPrice =
+    lastPartyPriceTl != null && lastPartyPriceUsd != null ? lastPartyPriceTl : null;
+  const lastSoldPriceUsd = lastPartyPriceUsd;
+
+  const stocks = product.stocks.map((stock) => ({
+    branchId: stock.branch.id,
+    branchName: stock.branch.name,
+    quantity: toFloat(stock.quantity),
+  }));
+
+  return {
+    id: product.id,
+    sku: product.sku,
+    barcode: product.barcode,
+    name: product.name,
+    costPrice: toFloat(product.costPrice),
+    costUsd,
+    priceTl,
+    priceUsd,
+    lastPartyPriceTl,
+    lastPartyPriceUsd,
+    lastSoldPrice,
+    lastSoldPriceUsd,
+    stocks,
+    merkezDepoQuantity: stocks[0]?.quantity ?? 0,
+  };
+}
+
+async function searchProductsForF2(options: {
+  search?: string;
+  page: number;
+  limit: number;
+  customerId: number | null;
+  context: 'sales' | 'purchase' | 'return';
+  rate: number;
+}) {
+  const { search, page, limit, customerId, context, rate } = options;
+  const trimmedSearch = search?.trim() ?? '';
+  const where = trimmedSearch ? buildProductSearchWhere(trimmedSearch) : {};
+  const skip = (page - 1) * limit;
+  const invoiceType = context === 'purchase' ? 'ALIS' : 'SATIS';
+
+  const [products, totalCount] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      take: limit,
+      skip,
+      select: PRODUCT_SEARCH_SELECT,
+    }),
+    prisma.product.count({ where }),
+  ]);
+
+  const partyPriceMap =
+    customerId && !Number.isNaN(customerId)
+      ? await getLastPartyPriceMap(
+          products.map((product) => product.id),
+          customerId,
+          invoiceType
+        )
+      : new Map<number, number>();
+
+  const data = products.map((product) =>
+    mapProductSearchExtras(
+      product,
+      partyPriceMap.get(product.id) ?? null,
+      rate
+    )
+  );
+
+  return { data, totalCount, page, limit };
 }
 
 function normalizeSearchTerm(search: string): string {
@@ -652,6 +921,7 @@ const JWT_SECRET =
 
 app.register(jwt, { secret: JWT_SECRET });
 app.register(rateLimit, { global: false });
+app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024 } });
 
 const ADMIN_USERNAME = 'akgunteknik';
 const ADMIN_PASSWORD = '123456';
@@ -844,14 +1114,93 @@ app.get('/api/reports/analytics', async () => {
   };
 });
 
-app.get<{ Querystring: { type?: string; customerId?: string } }>(
+app.get<{ Querystring: { customerId?: string; productId?: string } }>(
+  '/api/sales/returnable-item',
+  async (request, reply) => {
+    const customerId = Number(request.query.customerId);
+    const productId = Number(request.query.productId);
+
+    if (!Number.isFinite(customerId) || customerId <= 0) {
+      return reply.status(400).send({
+        success: false,
+        message: 'Geçerli müşteri seçin.',
+        errors: null,
+      });
+    }
+
+    if (!Number.isFinite(productId) || productId <= 0) {
+      return reply.status(400).send({
+        success: false,
+        message: 'Geçerli ürün seçin.',
+        errors: null,
+      });
+    }
+
+    const match = await findReturnableInvoiceItem(customerId, productId);
+    if (!match) {
+      return reply.status(404).send({
+        success: false,
+        message: 'Bu müşteri için iade alınabilecek satış satırı bulunamadı.',
+        errors: null,
+      });
+    }
+
+    return {
+      success: true,
+      data: match,
+      message: 'Returnable item found.',
+    };
+  }
+);
+
+app.get<{ Querystring: { type?: string } }>(
+  '/api/sales/invoices/export/excel',
+  async (request, reply) => {
+    const buffer = await exportInvoicesExcel(prisma, request.query.type);
+    reply.header(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    reply.header(
+      'Content-Disposition',
+      'attachment; filename="faturalar.xlsx"'
+    );
+    return buffer;
+  }
+);
+
+app.post('/api/sales/invoices/import/excel', async (request, reply) => {
+  const upload = await request.file();
+  if (!upload) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Excel dosyası gerekli.',
+      errors: null,
+    });
+  }
+
+  const buffer = await upload.toBuffer();
+  const result = await importInvoicesExcel(prisma, buffer);
+
+  return {
+    success: true,
+    data: result,
+    message: `${result.updated} fatura güncellendi.`,
+  };
+});
+
+app.get<{ Querystring: { type?: string; customerId?: string; preOrder?: string } }>(
   '/api/sales/invoices',
   async (request) => {
-    const { type, customerId } = request.query;
+    const { type, customerId, preOrder } = request.query;
 
     const where: Prisma.InvoiceWhereInput = {};
     if (type && type !== 'ALL') {
       where.type = type;
+    }
+    if (preOrder === 'true' || preOrder === '1') {
+      where.isPreOrder = true;
+      where.type = 'SATIS';
     }
     if (customerId) {
       const parsedCustomerId = Number(customerId);
@@ -1226,6 +1575,39 @@ app.get<{ Querystring: { search?: string; page?: string; limit?: string; take?: 
   }
 );
 
+app.get('/api/customers/export/excel', async (_request, reply) => {
+  const buffer = await exportCustomersExcel(prisma);
+  reply.header(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
+  reply.header(
+    'Content-Disposition',
+    'attachment; filename="musteriler.xlsx"'
+  );
+  return buffer;
+});
+
+app.post('/api/customers/import/excel', async (request, reply) => {
+  const upload = await request.file();
+  if (!upload) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Excel dosyası gerekli.',
+      errors: null,
+    });
+  }
+
+  const buffer = await upload.toBuffer();
+  const result = await importCustomersExcel(prisma, buffer);
+
+  return {
+    success: true,
+    data: result,
+    message: `${result.created} yeni, ${result.updated} güncellendi.`,
+  };
+});
+
 app.get<{ Params: { id: string } }>('/api/customers/:id', async (request, reply) => {
   const id = Number(request.params.id);
   if (!Number.isFinite(id) || id <= 0) {
@@ -1522,120 +1904,66 @@ app.post<{
   }
 });
 
-app.get<{ Querystring: { search?: string; customerId?: string; exchangeRate?: string } }>(
-  '/api/sales/products',
-  async (request, reply) => {
-    const { search, customerId, exchangeRate: exchangeRateQuery } = request.query;
-    const parsedCustomerId = customerId ? Number(customerId) : null;
-    const rate =
-      exchangeRateQuery && Number(exchangeRateQuery) > 0
-        ? Number(exchangeRateQuery)
-        : 46.39;
+app.get<{
+  Querystring: {
+    search?: string;
+    customerId?: string;
+    exchangeRate?: string;
+    page?: string;
+    limit?: string;
+    context?: string;
+  };
+}>('/api/sales/products', async (request, reply) => {
+  const {
+    search,
+    customerId,
+    exchangeRate: exchangeRateQuery,
+    page: pageQuery,
+    limit: limitQuery,
+    context: contextQuery,
+  } = request.query;
 
-    const trimmedSearch = search?.trim() ?? '';
-    if (!trimmedSearch) {
-      return {
-        success: true,
-        data: [],
-        message: 'Arama terimi gerekli.',
-      };
-    }
+  const parsedCustomerId = customerId ? Number(customerId) : null;
+  const rate =
+    exchangeRateQuery && Number(exchangeRateQuery) > 0
+      ? Number(exchangeRateQuery)
+      : 46.39;
+  const page = Math.max(1, Number(pageQuery) || 1);
+  const limit = Math.min(Math.max(Number(limitQuery) || 100, 1), 200);
+  const contextRaw = (contextQuery ?? 'sales').toLowerCase();
+  const context =
+    contextRaw === 'purchase' || contextRaw === 'return' ? contextRaw : 'sales';
 
-    try {
-      const where = buildProductSearchWhere(trimmedSearch);
+  try {
+    const result = await searchProductsForF2({
+      search,
+      page,
+      limit,
+      customerId:
+        parsedCustomerId && !Number.isNaN(parsedCustomerId) ? parsedCustomerId : null,
+      context,
+      rate,
+    });
 
-      const products = await prisma.product.findMany({
-        where,
-        orderBy: { name: 'asc' },
-        take: 50,
-        select: {
-          id: true,
-          sku: true,
-          barcode: true,
-          name: true,
-          costPrice: true,
-          priceTl: true,
-          priceUsd: true,
-          stocks: {
-            where: { branch: { name: DEPOT_NAMES.MERKEZ } },
-            select: {
-              quantity: true,
-              branch: { select: { id: true, name: true } },
-            },
-          },
-        },
-      });
-
-      const productsWithExtras = await Promise.all(
-        products.map(async (product) => {
-          let lastSoldPrice: number | null = null;
-          let lastSoldPriceUsd: number | null = null;
-
-          if (parsedCustomerId && !Number.isNaN(parsedCustomerId)) {
-            const lastItem = await prisma.invoiceItem.findFirst({
-              where: {
-                productId: product.id,
-                invoice: { customerId: parsedCustomerId, type: 'SATIS' },
-              },
-              orderBy: { invoice: { createdAt: 'desc' } },
-              select: { unitPrice: true },
-            });
-
-            lastSoldPrice =
-              lastItem?.unitPrice != null
-                ? toFloat(lastItem.unitPrice)
-                : null;
-
-            if (lastSoldPrice != null) {
-              const priceUsd = toFloat(product.priceUsd);
-              lastSoldPriceUsd =
-                lastSoldPrice > priceUsd * 4
-                  ? lastSoldPrice / rate
-                  : lastSoldPrice;
-            }
-          }
-
-          const costUsd = toFloat(product.costPrice) / rate;
-
-          const stocks = product.stocks.map((stock) => ({
-            branchId: stock.branch.id,
-            branchName: stock.branch.name,
-            quantity: toFloat(stock.quantity),
-          }));
-
-          return {
-            id: product.id,
-            sku: product.sku,
-            barcode: product.barcode,
-            name: product.name,
-            costPrice: toFloat(product.costPrice),
-            costUsd,
-            priceTl: toFloat(product.priceTl),
-            priceUsd: toFloat(product.priceUsd),
-            lastSoldPrice,
-            lastSoldPriceUsd,
-            stocks,
-            merkezDepoQuantity: stocks[0]?.quantity ?? 0,
-          };
-        })
-      );
-
-      return {
-        success: true,
-        data: productsWithExtras,
-        message: 'Products retrieved successfully.',
-      };
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Ürün araması başarısız.';
-      return reply.status(500).send({
-        success: false,
-        data: [],
-        message,
-      });
-    }
+    return {
+      success: true,
+      data: result.data,
+      totalCount: result.totalCount,
+      page: result.page,
+      limit: result.limit,
+      message: 'Products retrieved successfully.',
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Ürün araması başarısız.';
+    return reply.status(500).send({
+      success: false,
+      data: [],
+      totalCount: 0,
+      message,
+    });
   }
-);
+});
 
 app.post<{
   Body: {
@@ -2088,6 +2416,39 @@ app.get<{ Querystring: { search?: string; page?: string; limit?: string; take?: 
     };
   }
 );
+
+app.get('/api/products/export/excel', async (_request, reply) => {
+  const buffer = await exportProductsExcel(prisma);
+  reply.header(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
+  reply.header(
+    'Content-Disposition',
+    'attachment; filename="stoklar.xlsx"'
+  );
+  return buffer;
+});
+
+app.post('/api/products/import/excel', async (request, reply) => {
+  const upload = await request.file();
+  if (!upload) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Excel dosyası gerekli.',
+      errors: null,
+    });
+  }
+
+  const buffer = await upload.toBuffer();
+  const result = await importProductsExcel(prisma, buffer);
+
+  return {
+    success: true,
+    data: result,
+    message: `${result.created} yeni, ${result.updated} güncellendi.`,
+  };
+});
 
 app.get<{ Params: { id: string } }>('/api/products/:id', async (request, reply) => {
   const id = Number(request.params.id);
@@ -2792,20 +3153,30 @@ app.get('/api/settings/branches', async () => {
   };
 });
 
-app.get<{ Querystring: { page?: string; limit?: string } }>(
+app.get<{ Querystring: { page?: string; limit?: string; search?: string; productId?: string } }>(
   '/api/reports/stock-history',
   async (request) => {
     const pagination = parseListPageQuery(request.query);
+    const { search, productId: productIdQuery } = request.query;
     const merkezDepo = await prisma.branch.findFirst({
       where: { name: 'MERKEZ_DEPO' },
       select: { id: true, name: true },
     });
 
+    const itemWhere: Prisma.InvoiceItemWhereInput = {
+      invoice: { type: { in: ['SATIS', 'ALIS', 'IADE'] } },
+    };
+
+    const parsedProductId = productIdQuery ? Number(productIdQuery) : null;
+    if (parsedProductId && Number.isFinite(parsedProductId) && parsedProductId > 0) {
+      itemWhere.productId = parsedProductId;
+    } else if (search?.trim()) {
+      itemWhere.product = buildProductSearchWhere(search.trim());
+    }
+
     const [items, totalCount] = await Promise.all([
       prisma.invoiceItem.findMany({
-        where: {
-          invoice: { type: { in: ['SATIS', 'ALIS', 'IADE'] } },
-        },
+        where: itemWhere,
         orderBy: { invoice: { createdAt: 'desc' } },
         take: pagination.limit,
         skip: pagination.skip,
@@ -2821,9 +3192,7 @@ app.get<{ Querystring: { page?: string; limit?: string } }>(
           },
         },
       }),
-      prisma.invoiceItem.count({
-        where: { invoice: { type: { in: ['SATIS', 'ALIS', 'IADE'] } } },
-      }),
+      prisma.invoiceItem.count({ where: itemWhere }),
     ]);
 
     const data = items.map((item) => {

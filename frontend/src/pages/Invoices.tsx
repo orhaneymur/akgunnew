@@ -9,11 +9,13 @@ import {
   invoiceTypeStyles,
   type InvoiceType,
 } from '../lib/api';
+import ExcelActions from '../components/ExcelActions';
 
 type Invoice = {
   id: number;
   invoiceNo: string;
   type: string;
+  isPreOrder?: boolean;
   paymentMethod: string;
   paymentType: string | null;
   processedBy: string | null;
@@ -46,6 +48,7 @@ type FilterType = 'ALL' | InvoiceType;
 
 type InvoicesProps = {
   initialFilter?: FilterType;
+  preOrderOnly?: boolean;
   title?: string;
   description?: string;
   onNotify?: (type: 'success' | 'error', message: string) => void;
@@ -53,6 +56,7 @@ type InvoicesProps = {
 
 export default function Invoices({
   initialFilter = 'ALL',
+  preOrderOnly = false,
   title = 'Fatura Listesi',
   description = 'Satış, alış ve iade faturaları — görüntüle ve düzenle',
   onNotify,
@@ -79,7 +83,12 @@ export default function Invoices({
   const loadInvoices = useCallback(async () => {
     setLoading(true);
     try {
-      const params = filter !== 'ALL' ? { type: filter } : {};
+      const params: Record<string, string> = {};
+      if (preOrderOnly) {
+        params.preOrder = 'true';
+      } else if (filter !== 'ALL') {
+        params.type = filter;
+      }
       const response = await axios.get<{ success: boolean; data: Invoice[] }>(
         `${API_BASE}/api/sales/invoices`,
         { params }
@@ -92,7 +101,7 @@ export default function Invoices({
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, preOrderOnly]);
 
   useEffect(() => {
     setFilter(initialFilter);
@@ -168,6 +177,19 @@ export default function Invoices({
           </div>
         </div>
 
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
+          {!preOrderOnly && (
+            <ExcelActions
+              exportPath="/api/sales/invoices/export/excel"
+              importPath="/api/sales/invoices/import/excel"
+              exportFilename="faturalar.xlsx"
+              exportQuery={filter !== 'ALL' ? { type: filter } : undefined}
+              onImported={loadInvoices}
+              onNotify={notify}
+              hint="Yüklemede yalnızca mevcut faturaların üst bilgisi güncellenir."
+            />
+          )}
+        {!preOrderOnly && (
         <div className="flex w-full items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm sm:w-auto">
           <Filter className="ml-2 h-4 w-4 shrink-0 text-slate-400" />
           {filters.map((item) => (
@@ -188,6 +210,8 @@ export default function Invoices({
               {item.label}
             </button>
           ))}
+        </div>
+        )}
         </div>
       </div>
 
@@ -237,6 +261,11 @@ export default function Invoices({
                       >
                         {invoiceTypeLabel(inv.type)}
                       </span>
+                      {inv.isPreOrder && (
+                        <span className="ml-2 inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                          Ön Sipariş
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <p className="text-sm text-slate-800">{inv.customer.name}</p>

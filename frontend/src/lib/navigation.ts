@@ -33,12 +33,14 @@ export type PageId =
   | 'def-products'
   | 'def-safes'
   | 'def-users'
-  | 'invoices';
+  | 'invoices'
+  | 'pre-orders';
 
 export type InvoiceFilter = 'ALL' | InvoiceType;
 
 export type NavigateOptions = {
   invoiceFilter?: InvoiceFilter;
+  preOrderOnly?: boolean;
 };
 
 export type NavigateFn = (page: PageId, options?: NavigateOptions) => void;
@@ -73,6 +75,7 @@ export const menuCategories: MenuCategory[] = [
     items: [
       { id: 'sales', label: 'Satış Yap', badge: 'F2' },
       { id: 'sales-return', label: 'Satış İade' },
+      { id: 'pre-orders', label: 'Ön Siparişler' },
     ],
   },
   {
@@ -134,6 +137,7 @@ export const menuCategories: MenuCategory[] = [
 ];
 
 export function getCategoryForPage(pageId: PageId): MenuCategoryId | null {
+  if (pageId === 'pre-orders') return 'sales';
   for (const category of menuCategories) {
     if (category.items.some((item) => item.id === pageId)) {
       return category.id;
@@ -147,3 +151,61 @@ export const dashboardItem = {
   label: 'Ana Sayfa',
   icon: Home,
 };
+
+const VALID_PAGES = new Set<PageId>([
+  'dashboard',
+  'sales',
+  'sales-return',
+  'invoice-purchase',
+  'stock-list',
+  'stock-transfer',
+  'stock-movements',
+  'product-create',
+  'barcode-label',
+  'customer-list',
+  'customer-payments',
+  'customer-balance',
+  'report-sales',
+  'report-analytics',
+  'report-stock-value',
+  'report-cash-flow',
+  'report-customer-statement',
+  'def-products',
+  'def-safes',
+  'def-users',
+  'invoices',
+  'pre-orders',
+]);
+
+export function buildPageUrl(page: PageId, options?: NavigateOptions): string {
+  const url = new URL(window.location.href);
+  url.searchParams.set('page', page);
+  if (options?.invoiceFilter && options.invoiceFilter !== 'ALL') {
+    url.searchParams.set('filter', options.invoiceFilter);
+  } else {
+    url.searchParams.delete('filter');
+  }
+  if (options?.preOrderOnly) {
+    url.searchParams.set('preOrder', '1');
+  } else {
+    url.searchParams.delete('preOrder');
+  }
+  return url.toString();
+}
+
+export function parsePageFromUrl(): {
+  page: PageId;
+  invoiceFilter: InvoiceFilter;
+  preOrderOnly: boolean;
+} {
+  const params = new URLSearchParams(window.location.search);
+  const rawPage = params.get('page') ?? 'dashboard';
+  const page = VALID_PAGES.has(rawPage as PageId) ? (rawPage as PageId) : 'dashboard';
+  const filterRaw = params.get('filter');
+  const invoiceFilter: InvoiceFilter =
+    filterRaw === 'SATIS' || filterRaw === 'ALIS' || filterRaw === 'IADE'
+      ? filterRaw
+      : 'ALL';
+  const preOrderOnly = params.get('preOrder') === '1' || page === 'pre-orders';
+  return { page, invoiceFilter, preOrderOnly };
+}

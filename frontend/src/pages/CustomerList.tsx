@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Pencil, Plus, Search, Users, X } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
+import ExcelActions from '../components/ExcelActions';
 import {
   API_BASE,
   balanceStyles,
@@ -200,7 +201,16 @@ export default function CustomerList({ onNotify }: CustomerListProps = {}) {
           </div>
         </div>
 
-        <div className="flex w-full sm:w-auto gap-2">
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
+          <ExcelActions
+            exportPath="/api/customers/export/excel"
+            importPath="/api/customers/import/excel"
+            exportFilename="musteriler.xlsx"
+            onImported={() => loadCustomers(search, page)}
+            onNotify={notify}
+            hint="Bakiye sütunu bilgi amaçlıdır; yüklemede değiştirilmez."
+          />
+          <div className="flex w-full gap-2 sm:w-auto">
           <div className="relative flex-1 sm:w-80">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
@@ -219,6 +229,7 @@ export default function CustomerList({ onNotify }: CustomerListProps = {}) {
             <Plus className="w-4 h-4" />
             Yeni
           </button>
+          </div>
         </div>
       </div>
 

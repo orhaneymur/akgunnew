@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { FileInput, Save, Search, ShoppingCart, X } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
+import F2ProductList, { resolvePurchaseUnitPriceTl } from '../components/F2ProductList';
+import { useF2ProductSearch, type F2Product } from '../hooks/useF2ProductSearch';
+import { useF2KeyboardNav } from '../hooks/useF2KeyboardNav';
 import { useExchangeRates } from '../hooks/useExchangeRates';
 import {
   API_BASE,
@@ -47,11 +50,13 @@ type PaymentMethod = 'Nakit' | 'EFT/Havale' | 'Kart' | 'Cari';
 type PaymentType = 'Peşin' | 'Vadeli';
 
 type PurchaseCreateProps = {
+  f2Trigger?: number;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
 };
 
 export default function PurchaseCreate({
+  f2Trigger = 0,
   onNotify,
   onDataChange,
 }: PurchaseCreateProps) {
@@ -79,16 +84,18 @@ export default function PurchaseCreate({
   const [processedBy, setProcessedBy] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchModal, setSearchModal] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Product[]>([]);
-  const [focusedIndex, setFocusedIndex] = useState(-1);
-  const [searchLoading, setSearchLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const supplierSearchRef = useRef<HTMLInputElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const supplierDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const f2 = useF2ProductSearch({
+    open: searchModal,
+    f2Trigger,
+    context: 'purchase',
+    partyId: selectedSupplier?.id ?? null,
+    exchangeRate: rates.usd,
+  });
 
   const storeBranch = useMemo(
     () =>
@@ -195,45 +202,21 @@ export default function PurchaseCreate({
     };
   }, [supplierSearch, supplierDropdownOpen]);
 
-  useEffect(() => {
-    if (!searchModal) return;
-    const query = searchQuery.trim();
-    if (!query) {
-      setSearchResults([]);
-      setFocusedIndex(-1);
-      return;
-    }
+  const openSearchModal = useCallback(() => {
+    setSearchModal(true);
+    f2.openSearch();
+  }, [f2]);
 
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    searchDebounceRef.current = setTimeout(async () => {
-      setSearchLoading(true);
-      try {
-        const response = await axios.get<{ success: boolean; data: Product[] }>(
-          `${API_BASE}/api/sales/products`,
-          { params: { search: query } }
-        );
-        if (response.data.success) {
-          const results = ensureArray(response.data.data);
-          setSearchResults(results);
-          setFocusedIndex(results.length > 0 ? 0 : -1);
-        }
-      } catch {
-        setSearchResults([]);
-      } finally {
-        setSearchLoading(false);
-      }
-    }, 300);
-
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    };
-  }, [searchQuery, searchModal]);
+  const closeSearchModal = useCallback(() => {
+    setSearchModal(false);
+    f2.closeSearch();
+  }, [f2]);
 
   useEffect(() => {
-    if (searchModal) {
-      setTimeout(() => searchInputRef.current?.focus(), 50);
+    if (f2Trigger > 0) {
+      openSearchModal();
     }
-  }, [searchModal]);
+  }, [f2Trigger, openSearchModal]);
 
   useEffect(() => {
     if (selectedBranch === '') return;
@@ -247,7 +230,8 @@ export default function PurchaseCreate({
     setSupplierDropdownOpen(false);
   };
 
-  const addProductToCart = (product: Product) => {
+  const addProductToCart = (product: F2Product | Product) => {
+    const unitPrice = resolvePurchaseUnitPriceTl(product, Boolean(selectedSupplier));
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
@@ -261,35 +245,23 @@ export default function PurchaseCreate({
         ...prev,
         {
           rowId: `row-${product.id}-${Date.now()}`,
-          product,
+          product: product as Product,
           quantity: 1,
-          unitPrice: product.costPrice > 0 ? product.costPrice : product.priceTl,
+          unitPrice,
         },
       ];
     });
-    setSearchModal(false);
-    setSearchQuery('');
-    setSearchResults([]);
+    closeSearchModal();
   };
 
-  const handleModalKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'Escape') {
-      setSearchModal(false);
-      return;
-    }
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setFocusedIndex((i) => Math.min(i + 1, searchResults.length - 1));
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setFocusedIndex((i) => Math.max(i - 1, 0));
-    }
-    if (event.key === 'Enter' && focusedIndex >= 0) {
-      event.preventDefault();
-      addProductToCart(searchResults[focusedIndex]);
-    }
-  };
+  const handleModalKeyDown = useF2KeyboardNav({
+    open: searchModal,
+    results: f2.results,
+    focusedIndex: f2.focusedIndex,
+    navigateFocus: f2.navigateFocus,
+    onSelect: addProductToCart,
+    onClose: closeSearchModal,
+  });
 
   const handleSubmit = async () => {
     if (!selectedSupplier) {
@@ -580,7 +552,7 @@ export default function PurchaseCreate({
           </div>
           <button
             type="button"
-            onClick={() => setSearchModal(true)}
+            onClick={openSearchModal}
             className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium px-4 py-2 rounded-lg"
           >
             <Search className="w-4 h-4" />
@@ -710,39 +682,31 @@ export default function PurchaseCreate({
 
       <ProductSearchPopover
         open={searchModal}
-        onClose={() => setSearchModal(false)}
-        title="Ürün Ara"
+        onClose={closeSearchModal}
+        title="Alış Ürün Ara"
         headerClassName="bg-rose-600"
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchInputRef={searchInputRef}
+        searchQuery={f2.searchQuery}
+        onSearchChange={f2.setSearchQuery}
+        searchInputRef={f2.searchInputRef}
+        listRef={f2.listRef}
+        onListScroll={f2.handleListScroll}
         onKeyDown={handleModalKeyDown}
-        searchLoading={searchLoading}
-        showEmpty={!searchQuery.trim()}
-        emptyHint="SKU, barkod veya ürün adı yazın."
+        searchLoading={f2.loading}
+        loadingMore={f2.loadingMore}
+        footer={`${f2.results.length.toLocaleString('tr-TR')} / ${f2.totalCount.toLocaleString('tr-TR')} ürün`}
+        showEmpty={!f2.loading && f2.results.length === 0}
+        emptyHint={f2.searchQuery ? 'Sonuç bulunamadı.' : 'Ürün bulunamadı.'}
       >
-        {!searchLoading && (
-          <ul className="divide-y divide-slate-100">
-            {searchResults.map((product, index) => (
-              <li
-                key={product.id}
-                onClick={() => addProductToCart(product)}
-                className={`px-3 py-2 cursor-pointer ${
-                  index === focusedIndex ? 'bg-rose-50' : 'hover:bg-slate-50'
-                }`}
-              >
-                <p className="text-xs font-semibold text-slate-900">{product.name}</p>
-                <p className="text-[10px] text-slate-500">
-                  {product.sku} · {formatMoney(product.costPrice)}
-                </p>
-              </li>
-            ))}
-            {searchQuery.trim() && searchResults.length === 0 && (
-              <li className="px-3 py-6 text-center text-slate-400 text-xs">
-                Sonuç bulunamadı
-              </li>
-            )}
-          </ul>
+        {!f2.loading && f2.results.length > 0 && (
+          <F2ProductList
+            products={f2.results}
+            focusedIndex={f2.focusedIndex}
+            onFocusIndex={f2.setFocusedIndex}
+            onSelect={addProductToCart}
+            partySelected={Boolean(selectedSupplier)}
+            priceMode="tl"
+            accentClass="rose"
+          />
         )}
       </ProductSearchPopover>
     </div>

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { FileText, RotateCcw, Save } from 'lucide-react';
+import ProductSearchPopover from '../components/ProductSearchPopover';
+import F2ProductList from '../components/F2ProductList';
+import { useF2ProductSearch, type F2Product } from '../hooks/useF2ProductSearch';
+import { useF2KeyboardNav } from '../hooks/useF2KeyboardNav';
 import { useExchangeRates } from '../hooks/useExchangeRates';
 import { depotLabel } from '../lib/depots';
 import {
@@ -63,11 +67,16 @@ type ReturnDraft = {
 };
 
 type SalesReturnProps = {
+  f2Trigger?: number;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
 };
 
-export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps) {
+export default function SalesReturn({
+  f2Trigger = 0,
+  onNotify,
+  onDataChange,
+}: SalesReturnProps) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [safes, setSafes] = useState<Safe[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -83,8 +92,18 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [searchModal, setSearchModal] = useState(false);
+  const [pendingReturnItemId, setPendingReturnItemId] = useState<number | null>(null);
 
   const { rates } = useExchangeRates();
+
+  const f2 = useF2ProductSearch({
+    open: searchModal,
+    f2Trigger,
+    context: 'return',
+    partyId: selectedCustomer !== '' ? Number(selectedCustomer) : null,
+    exchangeRate: rates.usd,
+  });
 
   const branchSafes = useMemo(
     () =>
@@ -210,6 +229,120 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
       .finally(() => setLoadingDetail(false));
   }, [selectedInvoiceId, notify]);
 
+  const openSearchModal = useCallback(() => {
+    setSearchModal(true);
+    f2.openSearch();
+  }, [f2]);
+
+  const closeSearchModal = useCallback(() => {
+    setSearchModal(false);
+    f2.closeSearch();
+  }, [f2]);
+
+  useEffect(() => {
+    if (f2Trigger > 0) {
+      openSearchModal();
+    }
+  }, [f2Trigger, openSearchModal]);
+
+  useEffect(() => {
+    if (!pendingReturnItemId || !invoiceDetail) return;
+
+    const line = invoiceDetail.items.find((item) => item.id === pendingReturnItemId);
+    if (!line || line.returnableQty <= 0) {
+      setPendingReturnItemId(null);
+      return;
+    }
+
+    setReturnDrafts((prev) =>
+      prev.map((row) =>
+        row.sourceInvoiceItemId === pendingReturnItemId
+          ? { ...row, returnQty: Math.min(1, line.returnableQty) }
+          : row
+      )
+    );
+    setPendingReturnItemId(null);
+    notify('success', `${line.product.name} faturaya eklendi.`);
+  }, [invoiceDetail, pendingReturnItemId, notify]);
+
+  const pickProductForReturn = useCallback(
+    async (product: F2Product) => {
+      if (selectedCustomer === '') {
+        notify('error', 'Önce müşteri seçin.');
+        return;
+      }
+
+      try {
+        const response = await axios.get<{
+          success: boolean;
+          data: {
+            invoiceId: number;
+            invoiceNo: string;
+            sourceInvoiceItemId: number;
+            returnableQty: number;
+          };
+        }>(`${API_BASE}/api/sales/returnable-item`, {
+          params: {
+            customerId: selectedCustomer,
+            productId: product.id,
+          },
+        });
+
+        if (!response.data.success) return;
+
+        const match = response.data.data;
+        closeSearchModal();
+
+        if (
+          selectedInvoiceId === match.invoiceId &&
+          invoiceDetail?.id === match.invoiceId
+        ) {
+          const line = invoiceDetail.items.find(
+            (item) => item.id === match.sourceInvoiceItemId
+          );
+          if (!line || line.returnableQty <= 0) {
+            notify('error', 'Bu satır için iade alınamaz.');
+            return;
+          }
+          setReturnDrafts((prev) =>
+            prev.map((row) =>
+              row.sourceInvoiceItemId === match.sourceInvoiceItemId
+                ? {
+                    ...row,
+                    returnQty: Math.min(
+                      row.returnQty > 0 ? row.returnQty : 1,
+                      line.returnableQty
+                    ),
+                  }
+                : row
+            )
+          );
+          notify('success', `${line.product.name} faturaya eklendi.`);
+          return;
+        }
+
+        setPendingReturnItemId(match.sourceInvoiceItemId);
+        setSelectedInvoiceId(match.invoiceId);
+      } catch (error) {
+        const message =
+          axios.isAxiosError(error) && error.response?.data?.message
+            ? String(error.response.data.message)
+            : 'Bu ürün için iade alınabilecek satış bulunamadı.';
+        notify('error', message);
+      }
+    },
+    [selectedCustomer, selectedInvoiceId, invoiceDetail, closeSearchModal, notify]
+  );
+
+  const handleSearchKeyDown = useF2KeyboardNav({
+    open: searchModal,
+    results: f2.results,
+    focusedIndex: f2.focusedIndex,
+    navigateFocus: f2.navigateFocus,
+    onSelect: (product) => void pickProductForReturn(product),
+    onClose: closeSearchModal,
+  });
+
   const handleSubmit = async () => {
     if (
       selectedCustomer === '' ||
@@ -288,7 +421,7 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
         <div>
           <h1 className="text-xl font-bold text-slate-900">Satış İade</h1>
           <p className="text-sm text-slate-500">
-            Müşterinin satış faturasından ürün seçerek iade alın — kaynak fatura takibi
+            Müşterinin satış faturasından ürün seçerek iade alın — F2 ile hızlı ürün bul
           </p>
         </div>
       </div>
@@ -552,6 +685,37 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
           </button>
         </aside>
       </div>
+
+      <ProductSearchPopover
+        open={searchModal}
+        onClose={closeSearchModal}
+        title="İade Ürün Ara"
+        hint="↑↓ · Enter · Esc"
+        headerClassName="bg-amber-600"
+        searchQuery={f2.searchQuery}
+        onSearchChange={f2.setSearchQuery}
+        searchInputRef={f2.searchInputRef}
+        listRef={f2.listRef}
+        onListScroll={f2.handleListScroll}
+        onKeyDown={handleSearchKeyDown}
+        searchLoading={f2.loading}
+        loadingMore={f2.loadingMore}
+        footer={`${f2.results.length.toLocaleString('tr-TR')} / ${f2.totalCount.toLocaleString('tr-TR')} ürün`}
+        showEmpty={!f2.loading && f2.results.length === 0}
+        emptyHint={f2.searchQuery ? 'Sonuç bulunamadı.' : 'Ürün bulunamadı.'}
+      >
+        {!f2.loading && f2.results.length > 0 && (
+          <F2ProductList
+            products={f2.results}
+            focusedIndex={f2.focusedIndex}
+            onFocusIndex={f2.setFocusedIndex}
+            onSelect={(product) => void pickProductForReturn(product)}
+            partySelected={selectedCustomer !== ''}
+            priceMode="tl"
+            accentClass="amber"
+          />
+        )}
+      </ProductSearchPopover>
     </div>
   );
 }
