@@ -13,6 +13,18 @@
   #root {
     min-height: 100dvh;
   }
+
+  /* Adet, fiyat, indirim vb. — manuel giriş; tarayıcı okları gizli */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 }
 
 @layer utilities {
