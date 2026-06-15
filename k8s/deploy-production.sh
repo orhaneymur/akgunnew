@@ -27,6 +27,9 @@ grep -q "model ProductStock" backend/prisma/schema.prisma || {
   exit 1
 }
 
+echo "==> Veritabani migration (v1.6+)..."
+bash k8s/apply-migrations.sh
+
 echo "==> K8s manifestleri..."
 kubectl apply -f k8s/mysql-deployment.yaml
 kubectl apply -f k8s/apps.yaml
@@ -36,7 +39,7 @@ kubectl set image "deployment/akgunteknik-backend" "backend=${BACKEND_IMAGE}"
 kubectl set image "deployment/akgunteknik-frontend" "frontend=${FRONTEND_IMAGE}"
 
 echo "==> Rollout izleme..."
-kubectl rollout status "deployment/akgunteknik-backend" --timeout=300s
+kubectl rollout status "deployment/akgunteknik-backend" --timeout=600s
 kubectl rollout status "deployment/akgunteknik-frontend" --timeout=300s
 
 echo ""
