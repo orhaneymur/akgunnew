@@ -18,6 +18,7 @@ import {
 import { buildInvoiceCreatedAt, roundMoney } from './utils/datetime.js';
 
 const PORT = Number(process.env.PORT) || 3000;
+const APP_VERSION = process.env.APP_VERSION ?? 'dev';
 
 type StoreItem = {
   productId: number;
@@ -925,6 +926,15 @@ async function buildAnalyticsReport() {
 }
 
 app.register(cors, { origin: true });
+
+app.get('/api/version', async () => ({
+  success: true,
+  data: {
+    version: APP_VERSION,
+    allowNegativeStock: true,
+  },
+  message: 'API version',
+}));
 
 const JWT_SECRET =
   process.env.JWT_SECRET ?? 'akgunteknik-dev-secret-degistirin';
