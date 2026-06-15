@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.1` · `since1907/akgun-frontend:v1.8.2`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.1` · `since1907/akgun-frontend:v1.8.3`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -322,6 +322,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.8.0 | Stok hareketi detayları, fatura kalem düzenleme, stok miktarı düzenleme, ön sipariş tamamlama |
 | v1.8.1 | Varsayılan işlem para birimi USD; satışta F8 ile maliyet göster/gizle; alış ve iade ekranlarında $ fiyatlandırma |
 | v1.8.2 | Sayı alanlarında (adet, fiyat, indirim) tarayıcı yukarı/aşağı okları kaldırıldı |
+| v1.8.3 | Fiyatlar virgülden sonra 2 basamak (18,50 $); stoktan gelen tüm fiyatlarda tutarlı yuvarlama |
 
 ---
 

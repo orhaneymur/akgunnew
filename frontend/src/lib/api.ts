@@ -111,21 +111,26 @@ export function buildVisiblePages(
   return result;
 }
 
+export function roundPrice(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
+}
+
 export function formatMoney(value: number, currency = 'TRY') {
   return new Intl.NumberFormat('tr-TR', {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
-  }).format(value);
+    maximumFractionDigits: 2,
+  }).format(roundPrice(value));
 }
 
+/** USD fiyat — tr-TR: 18,50 $ */
 export function formatUsd(value: number) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
+  return `${new Intl.NumberFormat('tr-TR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(roundPrice(value))} $`;
 }
 
 export function formatDate(value: string) {

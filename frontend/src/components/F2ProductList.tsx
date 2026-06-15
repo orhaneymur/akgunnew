@@ -1,15 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { formatMoney } from '../lib/api';
+import { formatMoney, formatUsd, roundPrice } from '../lib/api';
 import type { F2Product } from '../hooks/useF2ProductSearch';
-
-function formatUsd(value: number) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 type F2ProductListProps = {
   products: F2Product[];
@@ -102,12 +93,12 @@ export default function F2ProductList({
 
 export function resolveSalesUnitPriceTl(product: F2Product, partySelected: boolean) {
   if (partySelected && product.lastPartyPriceTl != null) {
-    return product.lastPartyPriceTl;
+    return roundPrice(product.lastPartyPriceTl);
   }
   if (partySelected && product.lastSoldPrice != null) {
-    return product.lastSoldPrice;
+    return roundPrice(product.lastSoldPrice);
   }
-  return product.priceTl;
+  return roundPrice(product.priceTl);
 }
 
 export function resolveSalesUnitPriceUsd(
@@ -116,27 +107,29 @@ export function resolveSalesUnitPriceUsd(
   exchangeRate: number
 ) {
   if (partySelected && product.lastPartyPriceUsd != null) {
-    return product.lastPartyPriceUsd;
+    return roundPrice(product.lastPartyPriceUsd);
   }
   if (partySelected && product.lastPartyPriceTl != null) {
     const priceUsd = product.priceUsd;
     const partyTl = product.lastPartyPriceTl;
-    return partyTl > priceUsd * 4 ? partyTl / exchangeRate : partyTl;
+    const usd =
+      partyTl > priceUsd * 4 ? partyTl / exchangeRate : partyTl;
+    return roundPrice(usd);
   }
   if (partySelected && product.lastSoldPriceUsd != null) {
-    return product.lastSoldPriceUsd;
+    return roundPrice(product.lastSoldPriceUsd);
   }
-  return product.priceUsd;
+  return roundPrice(product.priceUsd);
 }
 
 export function resolvePurchaseUnitPriceTl(product: F2Product, partySelected: boolean) {
   if (partySelected && product.lastPartyPriceTl != null) {
-    return product.lastPartyPriceTl;
+    return roundPrice(product.lastPartyPriceTl);
   }
   if (partySelected && product.lastSoldPrice != null) {
-    return product.lastSoldPrice;
+    return roundPrice(product.lastSoldPrice);
   }
-  return product.costPrice > 0 ? product.costPrice : product.priceTl;
+  return roundPrice(product.costPrice > 0 ? product.costPrice : product.priceTl);
 }
 
 export function resolvePurchaseUnitPriceUsd(
@@ -145,15 +138,15 @@ export function resolvePurchaseUnitPriceUsd(
   exchangeRate: number
 ) {
   if (partySelected && product.lastPartyPriceUsd != null) {
-    return product.lastPartyPriceUsd;
+    return roundPrice(product.lastPartyPriceUsd);
   }
   if (partySelected && product.lastSoldPriceUsd != null) {
-    return product.lastSoldPriceUsd;
+    return roundPrice(product.lastSoldPriceUsd);
   }
   const costUsd =
     product.costUsd ??
     (product.costPrice > 0 && exchangeRate > 0
       ? product.costPrice / exchangeRate
       : 0);
-  return costUsd > 0 ? costUsd : product.priceUsd;
+  return roundPrice(costUsd > 0 ? costUsd : product.priceUsd);
 }

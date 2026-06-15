@@ -13,6 +13,7 @@ import {
   formatDate,
   formatMoney,
   formatUsd,
+  roundPrice,
   type PaginatedListResponse,
 } from '../lib/api';
 
@@ -133,9 +134,11 @@ export default function SalesReturn({
       ? invoiceDetail.exchangeRate
       : rates.usd;
 
-  const totalUsd = effectiveRate > 0 ? totalTl / effectiveRate : 0;
+  const totalUsd =
+    effectiveRate > 0 ? roundPrice(totalTl / effectiveRate) : 0;
 
-  const tlToUsd = (tl: number) => (effectiveRate > 0 ? tl / effectiveRate : 0);
+  const tlToUsd = (tl: number) =>
+    roundPrice(effectiveRate > 0 ? tl / effectiveRate : 0);
 
   const chinaReturnCount = selectedLines.filter((r) => r.isChinaReturn).length;
   const stockReturnCount = selectedLines.length - chinaReturnCount;

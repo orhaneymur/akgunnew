@@ -15,6 +15,7 @@ import {
   ensureArray,
   formatMoney,
   formatUsd,
+  roundPrice,
   type Customer,
   type PaginatedListResponse,
 } from '../lib/api';
@@ -86,11 +87,13 @@ function calcLineTotalUsd(
 }
 
 function productCostUsd(product: Product, exchangeRate: number) {
-  if (product.costUsd != null && product.costUsd > 0) return product.costUsd;
-  if (product.costPrice > 0 && exchangeRate > 0) {
-    return product.costPrice / exchangeRate;
+  if (product.costUsd != null && product.costUsd > 0) {
+    return roundPrice(product.costUsd);
   }
-  return product.priceUsd;
+  if (product.costPrice > 0 && exchangeRate > 0) {
+    return roundPrice(product.costPrice / exchangeRate);
+  }
+  return roundPrice(product.priceUsd);
 }
 
 function pickCustomerFromSearch(query: string, results: Customer[]): Customer | null {
@@ -422,9 +425,11 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
     field: 'quantity' | 'unitPriceUsd' | 'discountPercent',
     value: number
   ) => {
+    const normalized =
+      field === 'quantity' ? value : roundPrice(value);
     setCart((prev) =>
       prev.map((item) =>
-        item.rowId === rowId ? { ...item, [field]: value } : item
+        item.rowId === rowId ? { ...item, [field]: normalized } : item
       )
     );
   };

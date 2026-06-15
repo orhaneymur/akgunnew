@@ -13,6 +13,7 @@ import {
   ensureArray,
   formatMoney,
   formatUsd,
+  roundPrice,
   type Customer,
   type PaginatedListResponse,
 } from '../lib/api';
@@ -118,7 +119,7 @@ export default function PurchaseCreate({
   );
 
   const totalUsd = useMemo(
-    () => cart.reduce((sum, item) => sum + item.quantity * item.unitPriceUsd, 0),
+    () => roundPrice(cart.reduce((sum, item) => sum + item.quantity * item.unitPriceUsd, 0)),
     [cart]
   );
 
@@ -639,7 +640,11 @@ export default function PurchaseCreate({
                         setCart((prev) =>
                           prev.map((row) =>
                             row.rowId === item.rowId
-                              ? { ...row, unitPriceUsd: price >= 0 ? price : row.unitPriceUsd }
+                              ? {
+                                  ...row,
+                                  unitPriceUsd:
+                                    price >= 0 ? roundPrice(price) : row.unitPriceUsd,
+                                }
                               : row
                           )
                         );
