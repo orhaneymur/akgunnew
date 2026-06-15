@@ -2133,38 +2133,31 @@ app.post<{
         const stockBranchId = await getDepotBranchId(tx, 'MERKEZ');
 
         for (const item of normalizedItems) {
-          const stock = await tx.productStock.findUnique({
-            where: {
-              productId_branchId: {
+          const stockKey = {
+            productId_branchId: {
+              productId: item.productId,
+              branchId: stockBranchId,
+            },
+          };
+
+          const stock = await tx.productStock.findUnique({ where: stockKey });
+
+          if (stock) {
+            await tx.productStock.update({
+              where: stockKey,
+              data: {
+                quantity: { decrement: item.quantity },
+              },
+            });
+          } else {
+            await tx.productStock.create({
+              data: {
                 productId: item.productId,
                 branchId: stockBranchId,
+                quantity: -item.quantity,
               },
-            },
-          });
-
-          if (!stock) {
-            throw new Error(
-              `Ürün #${item.productId} için MERKEZ_DEPO stok kaydı bulunamadı.`
-            );
+            });
           }
-
-          if (stock.quantity < item.quantity) {
-            throw new Error(
-              `Ürün #${item.productId} için yetersiz stok. Mevcut: ${stock.quantity}, istenen: ${item.quantity}`
-            );
-          }
-
-          await tx.productStock.update({
-            where: {
-              productId_branchId: {
-                productId: item.productId,
-                branchId: stockBranchId,
-              },
-            },
-            data: {
-              quantity: { decrement: item.quantity },
-            },
-          });
         }
       }
 

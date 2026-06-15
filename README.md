@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.7.4` · `since1907/akgun-frontend:v1.7.4`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.7.7` · `since1907/akgun-frontend:v1.7.6`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -95,6 +95,7 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 
 - Tüm üst bilgiler (vade, ödeme, personel, açıklama, ön sipariş) kaydedilir
 - **`isPreOrder: true`** → fatura oluşur, **MERKEZ_DEPO stok düşümü yapılmaz**
+- Normal satışta stok yetersiz olsa bile satışa izin verilir; **MERKEZ_DEPO bakiyesi eksi değere düşebilir**
 - Ön siparişleri görüntüleme: menü **Satış İşlemleri → Ön Siparişler** veya `?page=pre-orders`
 - Fatura listesinde **Ön Sipariş** etiketi ile işaretlenir
 - Nakit / EFT / Kart → kasa bakiyesi ve tahsilat hareketi TL tutarıyla artar
@@ -312,6 +313,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.7.3 | Stok Excel içe aktarımda Kategori otomatik oluşturma, Bakiye sütunu desteği |
 | v1.7.4 | Fatura müşteri/ürün arama, Excel 504 timeout düzeltmesi, toplu stok import hızlandırma |
 | v1.7.5 | Satış fiyatı TL bazlı kayıt, fatura tarihi/saat düzeltmesi, müşteri seçim doğrulama |
+| v1.7.7 | Stok yetersiz olsa bile satışa izin; MERKEZ_DEPO eksi bakiyeye düşebilir |
 
 ---
 
