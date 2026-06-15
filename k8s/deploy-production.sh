@@ -56,10 +56,21 @@ echo ""
 echo "==> Backend imaj:"
 kubectl get deployment akgunteknik-backend -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
 
-BACKEND_POD="$(kubectl get pod -l app=akgunteknik-backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+echo "==> Calisan backend podlari:"
+kubectl get pods -l app=akgunteknik-backend --field-selector=status.phase=Running \
+  -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[0].image,READY:.status.containerStatuses[0].ready
+
+BACKEND_POD="$(kubectl get pod -l app=akgunteknik-backend \
+  --field-selector=status.phase=Running \
+  --sort-by=.metadata.creationTimestamp \
+  -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null || true)"
+
 if [ -n "${BACKEND_POD}" ]; then
-  echo "==> API surum (/api/version):"
-  kubectl exec "${BACKEND_POD}" -- wget -qO- http://127.0.0.1:3000/api/version 2>/dev/null || echo "version endpoint henuz yanit vermedi"
+  echo "==> API surum (${BACKEND_POD} /api/version):"
+  sleep 3
+  kubectl exec "${BACKEND_POD}" -- wget -qO- http://127.0.0.1:3000/api/version 2>/dev/null \
+    || kubectl exec "${BACKEND_POD}" -- node -e "require('http').get('http://127.0.0.1:3000/api/version',(r)=>{let d='';r.on('data',(c)=>d+=c);r.on('end',()=>process.stdout.write(d))}).on('error',()=>process.exit(1))" 2>/dev/null \
+    || echo "version endpoint henuz yanit vermedi — pod: ${BACKEND_POD}"
 fi
 
 echo ""
