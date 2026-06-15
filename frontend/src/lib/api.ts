@@ -119,6 +119,15 @@ export function formatMoney(value: number, currency = 'TRY') {
   }).format(value);
 }
 
+export function formatUsd(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 export function formatDate(value: string) {
   return new Intl.DateTimeFormat('tr-TR', {
     day: '2-digit',

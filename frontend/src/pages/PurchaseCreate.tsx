@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { FileInput, Save, Search, ShoppingCart, X } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
-import F2ProductList, { resolvePurchaseUnitPriceTl } from '../components/F2ProductList';
+import F2ProductList, {
+  resolvePurchaseUnitPriceUsd,
+} from '../components/F2ProductList';
 import { useF2ProductSearch, type F2Product } from '../hooks/useF2ProductSearch';
 import { useF2KeyboardNav } from '../hooks/useF2KeyboardNav';
 import { useExchangeRates } from '../hooks/useExchangeRates';
@@ -10,6 +12,7 @@ import {
   API_BASE,
   ensureArray,
   formatMoney,
+  formatUsd,
   type Customer,
   type PaginatedListResponse,
 } from '../lib/api';
@@ -37,7 +40,7 @@ type CartItem = {
   rowId: string;
   product: Product;
   quantity: number;
-  unitPrice: number;
+  unitPriceUsd: number;
 };
 type InitData = {
   branches: Branch[];
@@ -114,9 +117,14 @@ export default function PurchaseCreate({
     [initData.safes, selectedBranch]
   );
 
-  const totalTl = useMemo(
-    () => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
+  const totalUsd = useMemo(
+    () => cart.reduce((sum, item) => sum + item.quantity * item.unitPriceUsd, 0),
     [cart]
+  );
+
+  const totalTl = useMemo(
+    () => Math.round(totalUsd * (rates.usd > 0 ? rates.usd : 1) * 100) / 100,
+    [totalUsd, rates.usd]
   );
 
   const notify = useCallback(
@@ -229,7 +237,11 @@ export default function PurchaseCreate({
   };
 
   const addProductToCart = (product: F2Product | Product) => {
-    const unitPrice = resolvePurchaseUnitPriceTl(product, Boolean(selectedSupplier));
+    const unitPriceUsd = resolvePurchaseUnitPriceUsd(
+      product as F2Product,
+      Boolean(selectedSupplier),
+      rates.usd
+    );
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
@@ -245,7 +257,7 @@ export default function PurchaseCreate({
           rowId: `row-${product.id}-${Date.now()}`,
           product: product as Product,
           quantity: 1,
-          unitPrice,
+          unitPriceUsd,
         },
       ];
     });
@@ -311,7 +323,8 @@ export default function PurchaseCreate({
         items: cart.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
-          unitPrice: item.unitPrice,
+          unitPrice:
+            Math.round(item.unitPriceUsd * (rates.usd > 0 ? rates.usd : 1) * 100) / 100,
         })),
       });
 
@@ -351,7 +364,7 @@ export default function PurchaseCreate({
         <div>
           <h1 className="text-xl font-bold text-slate-900">Alış Faturası</h1>
           <p className="text-sm text-slate-500">
-            Tedarikçiden mal kabul · MERKEZ_DEPO stok artışı · Maliyet güncelleme
+            Tedarikçiden mal kabul · Fiyatlar $ (USD) · MERKEZ_DEPO stok artışı
           </p>
         </div>
       </div>
@@ -572,7 +585,7 @@ export default function PurchaseCreate({
                   Miktar
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">
-                  Birim Maliyet (TL)
+                  Birim Maliyet ($)
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">
                   Satır Toplam
@@ -620,13 +633,13 @@ export default function PurchaseCreate({
                       type="number"
                       min="0"
                       step="0.01"
-                      value={item.unitPrice}
+                      value={item.unitPriceUsd}
                       onChange={(e) => {
                         const price = Number(e.target.value);
                         setCart((prev) =>
                           prev.map((row) =>
                             row.rowId === item.rowId
-                              ? { ...row, unitPrice: price >= 0 ? price : row.unitPrice }
+                              ? { ...row, unitPriceUsd: price >= 0 ? price : row.unitPriceUsd }
                               : row
                           )
                         );
@@ -635,7 +648,7 @@ export default function PurchaseCreate({
                     />
                   </td>
                   <td className="px-4 py-3 text-right text-sm font-semibold text-rose-700">
-                    {formatMoney(item.quantity * item.unitPrice)}
+                    {formatUsd(item.quantity * item.unitPriceUsd)}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
@@ -663,7 +676,10 @@ export default function PurchaseCreate({
           </p>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             <p className="text-lg font-bold text-rose-700">
-              Toplam: {formatMoney(totalTl)}
+              Toplam: {formatUsd(totalUsd)}
+              <span className="text-slate-400 font-normal ml-2">
+                ({formatMoney(totalTl)} TL)
+              </span>
             </p>
             <button
               type="button"
@@ -702,7 +718,7 @@ export default function PurchaseCreate({
             onFocusIndex={f2.setFocusedIndex}
             onSelect={addProductToCart}
             partySelected={Boolean(selectedSupplier)}
-            priceMode="tl"
+            priceMode="usd"
             accentClass="rose"
           />
         )}

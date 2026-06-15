@@ -6,8 +6,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-BACKEND_IMAGE="${BACKEND_IMAGE:-since1907/akgun-backend:v1.8.0}"
-FRONTEND_IMAGE="${FRONTEND_IMAGE:-since1907/akgun-frontend:v1.8.0}"
+BACKEND_IMAGE="${BACKEND_IMAGE:-since1907/akgun-backend:v1.8.1}"
+FRONTEND_IMAGE="${FRONTEND_IMAGE:-since1907/akgun-frontend:v1.8.1}"
 
 echo "==> Git guncelleme (orhan branch)..."
 git fetch origin orhan
@@ -39,6 +39,7 @@ kubectl set image "deployment/akgunteknik-backend" "backend=${BACKEND_IMAGE}"
 kubectl set image "deployment/akgunteknik-frontend" "frontend=${FRONTEND_IMAGE}"
 
 kubectl rollout restart "deployment/akgunteknik-backend"
+kubectl rollout restart "deployment/akgunteknik-frontend"
 
 echo "==> Rollout izleme..."
 kubectl rollout status "deployment/akgunteknik-backend" --timeout=600s

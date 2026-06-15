@@ -2,15 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { Printer, Save, Search, ShoppingCart, X } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
-import F2ProductList, { resolveSalesUnitPriceTl } from '../components/F2ProductList';
+import F2ProductList, {
+  resolveSalesUnitPriceUsd,
+} from '../components/F2ProductList';
 import { useF2ProductSearch, type F2Product } from '../hooks/useF2ProductSearch';
 import { useF2KeyboardNav } from '../hooks/useF2KeyboardNav';
+import { useHoldKeyReveal } from '../hooks/useHoldKeyReveal';
 import {
   API_BASE,
   DEFAULT_USD,
   fetchExchangeRates,
   ensureArray,
   formatMoney,
+  formatUsd,
   type Customer,
   type PaginatedListResponse,
 } from '../lib/api';
@@ -52,9 +56,9 @@ type CartItem = {
   rowId: string;
   product: Product;
   quantity: number;
-  unitPriceTl: number;
+  unitPriceUsd: number;
   discountPercent: number;
-  costPrice: number;
+  costUsd: number;
 };
 
 type InitData = {
@@ -74,9 +78,19 @@ type SalesCreateProps = {
   onDataChange?: () => void;
 };
 
-function calcLineTotalTl(item: Pick<CartItem, 'quantity' | 'unitPriceTl' | 'discountPercent'>) {
-  const base = item.quantity * item.unitPriceTl;
+function calcLineTotalUsd(
+  item: Pick<CartItem, 'quantity' | 'unitPriceUsd' | 'discountPercent'>
+) {
+  const base = item.quantity * item.unitPriceUsd;
   return Math.round(base * (1 - item.discountPercent / 100) * 100) / 100;
+}
+
+function productCostUsd(product: Product, exchangeRate: number) {
+  if (product.costUsd != null && product.costUsd > 0) return product.costUsd;
+  if (product.costPrice > 0 && exchangeRate > 0) {
+    return product.costPrice / exchangeRate;
+  }
+  return product.priceUsd;
 }
 
 function pickCustomerFromSearch(query: string, results: Customer[]): Customer | null {
@@ -93,10 +107,6 @@ function pickCustomerFromSearch(query: string, results: Customer[]): Customer | 
   return (
     results.find((customer) => customer.name.toLocaleLowerCase('tr-TR') === lower) ?? null
   );
-}
-
-function formatUsd(value: number) {
-  return `$${value.toFixed(2)}`;
 }
 
 export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: SalesCreateProps) {
@@ -128,6 +138,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
   const [processedBy, setProcessedBy] = useState('');
   const [f2Modal, setF2Modal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const showCosts = useHoldKeyReveal('F8');
 
   const customerSearchRef = useRef<HTMLInputElement>(null);
   const quantityInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -164,15 +175,15 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
     [cart]
   );
 
-  const totalTl = useMemo(
+  const totalUsd = useMemo(
     () =>
-      Math.round(cart.reduce((sum, item) => sum + calcLineTotalTl(item), 0) * 100) / 100,
+      Math.round(cart.reduce((sum, item) => sum + calcLineTotalUsd(item), 0) * 100) / 100,
     [cart]
   );
 
-  const totalUsd = useMemo(
-    () => totalTl / (exchangeRate > 0 ? exchangeRate : 1),
-    [totalTl, exchangeRate]
+  const totalTl = useMemo(
+    () => Math.round(totalUsd * (exchangeRate > 0 ? exchangeRate : 1) * 100) / 100,
+    [totalUsd, exchangeRate]
   );
 
   const notify = useCallback(
@@ -285,15 +296,20 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
               }
             );
             const match = response.data.data.find((p) => p.id === item.product.id);
-            const unitPriceTl =
-              match?.lastSoldPrice != null
-                ? match.lastSoldPrice
-                : (match?.priceTl ?? item.unitPriceTl);
-            const costPrice = match?.costPrice ?? item.costPrice;
+            const unitPriceUsd = match
+              ? resolveSalesUnitPriceUsd(
+                  match as F2Product,
+                  Boolean(selectedCustomer),
+                  exchangeRate
+                )
+              : item.unitPriceUsd;
+            const costUsd = match
+              ? productCostUsd(match, exchangeRate)
+              : item.costUsd;
             return {
               rowId: item.rowId,
-              unitPriceTl,
-              costPrice,
+              unitPriceUsd,
+              costUsd,
               product: match ? { ...item.product, ...match } : item.product,
             };
           })
@@ -305,8 +321,8 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
             return row
               ? {
                   ...item,
-                  unitPriceTl: row.unitPriceTl,
-                  costPrice: row.costPrice,
+                  unitPriceUsd: row.unitPriceUsd,
+                  costUsd: row.costUsd,
                   product: row.product,
                 }
               : item;
@@ -344,21 +360,22 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
     }
   }, [f2Trigger]);
 
-  const resolveProductTl = useCallback(
+  const resolveProductUsd = useCallback(
     (product: F2Product | Product) => {
-      const unitPriceTl = resolveSalesUnitPriceTl(
+      const unitPriceUsd = resolveSalesUnitPriceUsd(
         product as F2Product,
-        Boolean(selectedCustomer)
+        Boolean(selectedCustomer),
+        exchangeRate
       );
-      const costPrice = product.costPrice;
-      return { unitPriceTl, costPrice };
+      const costUsd = productCostUsd(product, exchangeRate);
+      return { unitPriceUsd, costUsd };
     },
-    [selectedCustomer]
+    [selectedCustomer, exchangeRate]
   );
 
   const addProductToCart = useCallback(
     (product: F2Product | Product) => {
-      const { unitPriceTl, costPrice } = resolveProductTl(product);
+      const { unitPriceUsd, costUsd } = resolveProductUsd(product);
 
       setCart((prev) => {
         const existing = prev.find((item) => item.product.id === product.id);
@@ -379,16 +396,16 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
             rowId,
             product,
             quantity: 1,
-            unitPriceTl,
+            unitPriceUsd,
             discountPercent: 0,
-            costPrice,
+            costUsd,
           },
         ];
       });
 
       closeF2Modal();
     },
-    [closeF2Modal, resolveProductTl]
+    [closeF2Modal, resolveProductUsd]
   );
 
   const handleModalKeyDown = useF2KeyboardNav({
@@ -402,7 +419,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
 
   const updateCartItem = (
     rowId: string,
-    field: 'quantity' | 'unitPriceTl' | 'discountPercent',
+    field: 'quantity' | 'unitPriceUsd' | 'discountPercent',
     value: number
   ) => {
     setCart((prev) =>
@@ -482,7 +499,10 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
         items: cart.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
-          unitPrice: item.unitPriceTl,
+          unitPrice:
+            Math.round(
+              item.unitPriceUsd * (exchangeRate > 0 ? exchangeRate : 1) * 100
+            ) / 100,
           discountPercent: item.discountPercent,
         })),
       });
@@ -493,7 +513,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
           'success',
           `${isPreOrder ? 'Ön sipariş' : 'Satış'} kaydedildi! Fatura: ${response.data.data?.invoiceNo ?? ''}${
             savedCustomer ? ` · ${savedCustomer.name}` : ''
-          }${response.data.data?.totalAmountTl != null ? ` · ${formatMoney(response.data.data.totalAmountTl)}` : ''}`
+          }${response.data.data?.totalAmountTl != null ? ` · ${formatUsd(totalUsd)}` : ''}`
         );
         setCart([]);
         setOrderNotes('');
@@ -532,7 +552,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
         <div>
           <h1 className="text-xl font-bold text-slate-900">Hızlı Satış Yap</h1>
           <p className="text-sm text-slate-500">
-            Esnaf fatura tezgâhı · F2 ile stok ara · Çift para birimi ($ / TL)
+            Esnaf fatura tezgâhı · F2 stok ara · Fiyatlar $ (USD) · F8 maliyet
           </p>
         </div>
       </div>
@@ -750,6 +770,11 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
             <ShoppingCart className="w-5 h-5 text-indigo-600" />
             <h2 className="font-semibold text-slate-800">Akıllı Sepet</h2>
             <span className="text-sm text-slate-500">({cart.length} kalem)</span>
+            {!showCosts && (
+              <span className="text-[10px] text-slate-400 hidden sm:inline">
+                Maliyet: F8 basılı tut
+              </span>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -767,11 +792,13 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
                   <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-20">
                     Adet
                   </th>
+                  {showCosts && (
+                    <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-24 print:hidden">
+                      Maliyet ($)
+                    </th>
+                  )}
                   <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-24">
-                    Maliyet (₺)
-                  </th>
-                  <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-24">
-                    Fiyat (₺)
+                    Fiyat ($)
                   </th>
                   <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-28">
                     Toplam
@@ -781,7 +808,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {cart.map((item) => {
-                  const lineTotal = calcLineTotalTl(item);
+                  const lineTotal = calcLineTotalUsd(item);
                   return (
                     <tr key={item.rowId} className="hover:bg-slate-50/80">
                       <td className="px-3 py-2 font-mono text-xs text-slate-600">
@@ -828,19 +855,21 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
                           className="w-16 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500"
                         />
                       </td>
-                      <td className="px-3 py-2 text-right text-slate-500 tabular-nums">
-                        {formatMoney(item.costPrice)}
-                      </td>
+                      {showCosts && (
+                        <td className="px-3 py-2 text-right text-slate-500 tabular-nums print:hidden">
+                          {formatUsd(item.costUsd)}
+                        </td>
+                      )}
                       <td className="px-3 py-2 text-right">
                         <input
                           type="number"
                           min="0"
                           step="0.01"
-                          value={item.unitPriceTl}
+                          value={item.unitPriceUsd}
                           onChange={(e) =>
                             updateCartItem(
                               item.rowId,
-                              'unitPriceTl',
+                              'unitPriceUsd',
                               Number(e.target.value)
                             )
                           }
@@ -848,7 +877,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
                         />
                       </td>
                       <td className="px-3 py-2 text-right font-bold text-slate-900 tabular-nums">
-                        {formatMoney(lineTotal)}
+                        {formatUsd(lineTotal)}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <button
@@ -865,7 +894,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
                 {cart.length === 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={showCosts ? 8 : 7}
                       className="px-4 py-16 text-center text-slate-400"
                     >
                       Sepet boş.{' '}
@@ -910,22 +939,22 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
 
           <div className="text-center">
             <p className="text-xs text-slate-500 uppercase tracking-wide">
-              Net Toplam (₺)
+              Net Toplam ($)
             </p>
             <p className="text-3xl font-black text-red-600 tabular-nums">
-              {formatMoney(totalTl)}
+              {formatUsd(totalUsd)}
             </p>
           </div>
 
-          <div className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 p-4 text-center shadow-lg">
-            <p className="text-xs text-emerald-100 uppercase tracking-wide font-semibold">
-              Dolar Karşılığı
+          <div className="rounded-xl bg-slate-100 p-3 text-center">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">
+              TL Karşılığı (referans)
             </p>
-            <p className="text-2xl font-black text-white tabular-nums mt-1">
-              {formatUsd(totalUsd)}
+            <p className="text-lg font-bold text-slate-700 tabular-nums mt-1">
+              {formatMoney(totalTl)}
             </p>
-            <p className="text-[10px] text-emerald-200 mt-1">
-              {formatMoney(totalTl)} ÷ {exchangeRate.toFixed(4)}
+            <p className="text-[10px] text-slate-400 mt-1">
+              {formatUsd(totalUsd)} × {exchangeRate.toFixed(4)}
             </p>
           </div>
 
@@ -1006,7 +1035,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
             onFocusIndex={f2.setFocusedIndex}
             onSelect={addProductToCart}
             partySelected={Boolean(selectedCustomer)}
-            priceMode="tl"
+            priceMode="usd"
             accentClass="indigo"
           />
         )}

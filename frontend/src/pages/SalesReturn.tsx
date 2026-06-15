@@ -12,6 +12,7 @@ import {
   ensureArray,
   formatDate,
   formatMoney,
+  formatUsd,
   type PaginatedListResponse,
 } from '../lib/api';
 
@@ -126,6 +127,15 @@ export default function SalesReturn({
       return sum + row.returnQty * line.unitPrice;
     }, 0);
   }, [invoiceDetail, selectedLines]);
+
+  const effectiveRate =
+    invoiceDetail?.exchangeRate && invoiceDetail.exchangeRate > 0
+      ? invoiceDetail.exchangeRate
+      : rates.usd;
+
+  const totalUsd = effectiveRate > 0 ? totalTl / effectiveRate : 0;
+
+  const tlToUsd = (tl: number) => (effectiveRate > 0 ? tl / effectiveRate : 0);
 
   const chinaReturnCount = selectedLines.filter((r) => r.isChinaReturn).length;
   const stockReturnCount = selectedLines.length - chinaReturnCount;
@@ -499,7 +509,7 @@ export default function SalesReturn({
                   </option>
                   {salesInvoices.map((inv) => (
                     <option key={inv.id} value={inv.id}>
-                      {inv.invoiceNo} · {formatMoney(inv.totalAmountTl)} ·{' '}
+                      {inv.invoiceNo} · {formatUsd(tlToUsd(inv.totalAmountTl))} ·{' '}
                       {formatDate(inv.createdAt)}
                     </option>
                   ))}
@@ -555,7 +565,7 @@ export default function SalesReturn({
                           Çin İade
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase w-28">
-                          Birim Fiyat
+                          Birim Fiyat ($)
                         </th>
                       </tr>
                     </thead>
@@ -637,7 +647,7 @@ export default function SalesReturn({
                               />
                             </td>
                             <td className="px-4 py-3 text-right text-sm">
-                              {formatMoney(line.unitPrice)}
+                              {formatUsd(tlToUsd(line.unitPrice))}
                             </td>
                           </tr>
                         );
@@ -652,7 +662,8 @@ export default function SalesReturn({
 
         <aside className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 sticky top-6 space-y-4 h-fit">
           <h2 className="font-semibold text-slate-800">İade Özeti</h2>
-          <div className="text-2xl font-bold text-slate-900">{formatMoney(totalTl)}</div>
+          <div className="text-2xl font-bold text-slate-900">{formatUsd(totalUsd)}</div>
+          <p className="text-xs text-slate-400">{formatMoney(totalTl)} TL</p>
           {invoiceDetail && (
             <p className="text-xs text-slate-500">
               Kaynak: <strong>{invoiceDetail.invoiceNo}</strong>

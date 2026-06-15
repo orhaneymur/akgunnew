@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.0` · `since1907/akgun-frontend:v1.8.0`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.1` · `since1907/akgun-frontend:v1.8.1`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -64,7 +64,7 @@ Menü tanımları: `frontend/src/lib/navigation.ts` · URL: `?page=sales`, `?pag
 - Türkçe karaktere duyarsız arama
 
 ### Alış Faturası (Mal Kabul)
-- Tedarikçiden mal girişi formu (`PurchaseCreate.tsx`)
+- Tedarikçiden mal girişi formu (`PurchaseCreate.tsx`) — **fiyatlar USD ($)** bazlı
 - `GET /api/purchases/init` — tedarikçiler, kasalar, bir sonraki fatura no
 - `POST /api/purchases/store` — `AF{year}xxxx` numaralı `ALIS` faturası
 - **MERKEZ_DEPO** stok artışı ve ürün `costPrice` güncellemesi
@@ -83,9 +83,12 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 | **Ödeme** | EFT/Havale, Nakit, Kart, Cari · Peşin/Vadeli · Banka/Kasa seçimi |
 | **Teslimat** | Mağazadan Teslim / Kargo · Sipariş açıklaması (textarea) |
 
-#### Çift Para Birimi Matematik Motoru
+#### Çift Para Birimi Matematik Motoru (v1.8.1 — varsayılan USD)
 
-- Sepet satırları **USD ($)** bazlı: `Maliyet ($)` ve `Fiyat ($)` veritabanından gelir
+- **Satış, alış ve iade** ekranlarında fiyat girişi ve toplamlar **USD ($)** bazlıdır; TL yalnızca küçük referans satırı olarak gösterilir
+- Kayıt anında API'ye TL gönderilir (`$ × kur`); veritabanı muhasebesi TL üzerinden devam eder
+- Sepet satırları: `Fiyat ($)` düzenlenebilir; **maliyet sütunu varsayılan olarak gizlidir**
+- **F8 basılı tutulduğunda** maliyet ($) sütunu görünür; tuş bırakılınca veya pencere odaktan çıkınca tekrar gizlenir (yalnızca `keydown`/`keyup` dinleyicisi, ek API yükü yok)
 - Satır indirimi: `Toplam = (Adet × Fiyat) × (1 − Ind.% / 100)`
 - **Net Toplam ($)** kırmızı büyük puntoda; **TL Toplam** = `Net Toplam ($) × Döviz Kuru`
 - Üst bardaki kur satış panelinde düzenlenebilir input olarak kullanılır
@@ -317,6 +320,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.7.8 | `/api/version` endpoint, deploy script rollout restart ve sürüm doğrulama |
 | v1.7.9 | Tahsilat/Ödeme ekranında müşteri arama ve F2 hızlı müşteri bulma |
 | v1.8.0 | Stok hareketi detayları, fatura kalem düzenleme, stok miktarı düzenleme, ön sipariş tamamlama |
+| v1.8.1 | Varsayılan işlem para birimi USD; satışta F8 ile maliyet göster/gizle; alış ve iade ekranlarında $ fiyatlandırma |
 
 ---
 

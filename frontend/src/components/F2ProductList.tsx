@@ -138,3 +138,22 @@ export function resolvePurchaseUnitPriceTl(product: F2Product, partySelected: bo
   }
   return product.costPrice > 0 ? product.costPrice : product.priceTl;
 }
+
+export function resolvePurchaseUnitPriceUsd(
+  product: F2Product,
+  partySelected: boolean,
+  exchangeRate: number
+) {
+  if (partySelected && product.lastPartyPriceUsd != null) {
+    return product.lastPartyPriceUsd;
+  }
+  if (partySelected && product.lastSoldPriceUsd != null) {
+    return product.lastSoldPriceUsd;
+  }
+  const costUsd =
+    product.costUsd ??
+    (product.costPrice > 0 && exchangeRate > 0
+      ? product.costPrice / exchangeRate
+      : 0);
+  return costUsd > 0 ? costUsd : product.priceUsd;
+}
