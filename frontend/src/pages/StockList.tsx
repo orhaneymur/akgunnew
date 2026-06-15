@@ -163,9 +163,10 @@ export default function StockList({ onNotify }: StockListProps = {}) {
             exportPath="/api/products/export/excel"
             importPath="/api/products/import/excel"
             exportFilename="stoklar.xlsx"
+            importTimeoutMs={600_000}
             onImported={() => loadProducts(search, page)}
             onNotify={notify}
-            hint="Kategori yoksa otomatik oluşturulur. Stok: MerkezDepo veya Bakiye sütunu."
+            hint="Kategori yoksa otomatik oluşturulur. Büyük dosyalar birkaç dakika sürebilir."
           />
           <div className="relative w-full sm:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />

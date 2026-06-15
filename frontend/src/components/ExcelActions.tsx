@@ -15,6 +15,7 @@ type ExcelActionsProps = {
   importPath: string;
   exportFilename: string;
   exportQuery?: Record<string, string>;
+  importTimeoutMs?: number;
   onImported?: () => void;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   hint?: string;
@@ -25,6 +26,7 @@ export default function ExcelActions({
   importPath,
   exportFilename,
   exportQuery,
+  importTimeoutMs = 120_000,
   onImported,
   onNotify,
   hint,
@@ -69,7 +71,10 @@ export default function ExcelActions({
       const response = await axios.post<{ success: boolean; data: ImportResult; message: string }>(
         `${API_BASE}${importPath}`,
         formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: importTimeoutMs,
+        }
       );
 
       const result = response.data.data;
@@ -82,9 +87,13 @@ export default function ExcelActions({
       onImported?.();
     } catch (error) {
       const message =
-        axios.isAxiosError(error) && error.response?.data?.message
-          ? String(error.response.data.message)
-          : 'Excel yüklenemedi.';
+        axios.isAxiosError(error) && error.code === 'ECONNABORTED'
+          ? 'Excel yükleme zaman aşımına uğradı. Dosya çok büyük olabilir; bir süre sonra tekrar deneyin.'
+          : axios.isAxiosError(error) && error.response?.data?.message
+            ? String(error.response.data.message)
+            : axios.isAxiosError(error) && error.response?.status === 504
+              ? 'Sunucu zaman aşımı (504). Deploy sonrası nginx timeout güncellemesi gerekebilir.'
+              : 'Excel yüklenemedi.';
       onNotify?.('error', message);
     } finally {
       setImporting(false);

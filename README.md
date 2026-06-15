@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.7.3` · `since1907/akgun-frontend:v1.7.3`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.7.4` · `since1907/akgun-frontend:v1.7.4`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -118,7 +118,8 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 
 ### Fatura Listesi
 - Tek ekranda **Tümü / Satış / Alış / İade** filtresi
-- **Arama kutusu** — fatura no, müşteri adı/kodu, ödeme, personel ve açıklama ile anlık filtreleme (v1.7.2)
+- **Fatura Ara** paneli — müşteri adı/kodu ve ürün (stok kodu, barkod, ad) ile sunucu tarafı arama (v1.7.4)
+- Ürün araması geçmiş faturaların kalemlerinde arar; müşteri araması o cariye ait tüm faturaları listeler
 - Dashboard kısayolları filtreli listeye yönlendirir
 - **Excel İndir / Excel Yükle** ile toplu fatura üst bilgisi güncelleme (v1.7)
 
@@ -309,6 +310,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.7.1 | F2 klavye gezinme, ön sipariş listesi, stok hareketi ürün arama, menü yeni sekme, F2 sayfa bağlamı |
 | v1.7.2 | F2 arama kutusu yazma/odak düzeltmesi, Esc ve ✕ ile kapanma, fatura listesi arama |
 | v1.7.3 | Stok Excel içe aktarımda Kategori otomatik oluşturma, Bakiye sütunu desteği |
+| v1.7.4 | Fatura müşteri/ürün arama, Excel 504 timeout düzeltmesi, toplu stok import hızlandırma |
 
 ---
 

@@ -921,7 +921,7 @@ const JWT_SECRET =
 
 app.register(jwt, { secret: JWT_SECRET });
 app.register(rateLimit, { global: false });
-app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024 } });
+app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
 
 const ADMIN_USERNAME = 'akgunteknik';
 const ADMIN_PASSWORD = '123456';
@@ -1189,10 +1189,18 @@ app.post('/api/sales/invoices/import/excel', async (request, reply) => {
   };
 });
 
-app.get<{ Querystring: { type?: string; customerId?: string; preOrder?: string } }>(
+app.get<{
+  Querystring: {
+    type?: string;
+    customerId?: string;
+    preOrder?: string;
+    customerSearch?: string;
+    productSearch?: string;
+  };
+}>(
   '/api/sales/invoices',
   async (request) => {
-    const { type, customerId, preOrder } = request.query;
+    const { type, customerId, preOrder, customerSearch, productSearch } = request.query;
 
     const where: Prisma.InvoiceWhereInput = {};
     if (type && type !== 'ALL') {
@@ -1209,10 +1217,35 @@ app.get<{ Querystring: { type?: string; customerId?: string; preOrder?: string }
       }
     }
 
+    const customerQuery = customerSearch?.trim();
+    if (customerQuery) {
+      where.customer = {
+        OR: [
+          { name: { contains: customerQuery } },
+          { code: { contains: customerQuery } },
+        ],
+      };
+    }
+
+    const productQuery = productSearch?.trim();
+    if (productQuery) {
+      where.items = {
+        some: {
+          product: {
+            OR: [
+              { name: { contains: productQuery } },
+              { sku: { contains: productQuery } },
+              { barcode: { contains: productQuery } },
+            ],
+          },
+        },
+      };
+    }
+
     const invoices = await prisma.invoice.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      take: customerId ? 100 : undefined,
+      take: 1000,
       include: {
         customer: { select: { id: true, code: true, name: true } },
         user: { select: { id: true, name: true } },

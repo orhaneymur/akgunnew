@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
-import { Eye, FileText, Filter, Pencil, Save, Search, X } from 'lucide-react';
+import { Eye, FileText, Filter, Package, Pencil, Save, Search, User, X } from 'lucide-react';
 import {
   API_BASE,
   formatDate,
@@ -63,7 +63,10 @@ export default function Invoices({
 }: InvoicesProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [filter, setFilter] = useState<FilterType>(initialFilter);
-  const [search, setSearch] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [productSearch, setProductSearch] = useState('');
+  const [appliedCustomerSearch, setAppliedCustomerSearch] = useState('');
+  const [appliedProductSearch, setAppliedProductSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -90,6 +93,12 @@ export default function Invoices({
       } else if (filter !== 'ALL') {
         params.type = filter;
       }
+      if (appliedCustomerSearch.trim()) {
+        params.customerSearch = appliedCustomerSearch.trim();
+      }
+      if (appliedProductSearch.trim()) {
+        params.productSearch = appliedProductSearch.trim();
+      }
       const response = await axios.get<{ success: boolean; data: Invoice[] }>(
         `${API_BASE}/api/sales/invoices`,
         { params }
@@ -99,10 +108,11 @@ export default function Invoices({
       }
     } catch {
       setInvoices([]);
+      notify('error', 'Fatura listesi yüklenemedi.');
     } finally {
       setLoading(false);
     }
-  }, [filter, preOrderOnly]);
+  }, [filter, preOrderOnly, appliedCustomerSearch, appliedProductSearch, notify]);
 
   useEffect(() => {
     setFilter(initialFilter);
@@ -112,24 +122,19 @@ export default function Invoices({
     loadInvoices();
   }, [loadInvoices]);
 
-  const filteredInvoices = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase('tr-TR');
-    if (!query) return invoices;
+  const runSearch = () => {
+    setAppliedCustomerSearch(customerSearch);
+    setAppliedProductSearch(productSearch);
+  };
 
-    return invoices.filter((inv) => {
-      const haystack = [
-        inv.invoiceNo,
-        inv.customer.code,
-        inv.customer.name,
-        inv.paymentMethod,
-        inv.processedBy ?? '',
-        inv.orderNotes ?? '',
-      ]
-        .join(' ')
-        .toLocaleLowerCase('tr-TR');
-      return haystack.includes(query);
-    });
-  }, [invoices, search]);
+  const clearSearch = () => {
+    setCustomerSearch('');
+    setProductSearch('');
+    setAppliedCustomerSearch('');
+    setAppliedProductSearch('');
+  };
+
+  const hasActiveSearch = Boolean(appliedCustomerSearch.trim() || appliedProductSearch.trim());
 
   const openDetail = async (inv: Invoice) => {
     setDetailLoading(true);
@@ -235,16 +240,73 @@ export default function Invoices({
         </div>
       </div>
 
-      <div className="relative max-w-xl">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Fatura no, müşteri adı veya kodu ile ara..."
-          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm shadow-sm focus:border-violet-500 focus:ring-violet-500"
-        />
-      </div>
+      <section className="rounded-2xl border border-violet-200/80 bg-gradient-to-br from-violet-50/80 to-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-violet-900">
+          <Search className="h-4 w-4" />
+          Fatura Ara
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-600">
+              <User className="h-3.5 w-3.5" />
+              Müşteri (ad veya cari kodu)
+            </label>
+            <input
+              type="text"
+              value={customerSearch}
+              onChange={(e) => setCustomerSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+              placeholder="Örn: AHMET YILMAZ veya C001"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-violet-500 focus:ring-violet-500"
+            />
+          </div>
+          <div>
+            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-600">
+              <Package className="h-3.5 w-3.5" />
+              Ürün (stok kodu, barkod veya ad)
+            </label>
+            <input
+              type="text"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+              placeholder="Örn: 3M BANT veya 12345"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-violet-500 focus:ring-violet-500"
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={runSearch}
+            className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-500"
+          >
+            <Search className="h-4 w-4" />
+            Ara
+          </button>
+          {hasActiveSearch && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              <X className="h-4 w-4" />
+              Temizle
+            </button>
+          )}
+          {hasActiveSearch && (
+            <p className="text-xs text-slate-500">
+              {appliedCustomerSearch.trim() && (
+                <span>Müşteri: <strong>{appliedCustomerSearch}</strong></span>
+              )}
+              {appliedCustomerSearch.trim() && appliedProductSearch.trim() && ' · '}
+              {appliedProductSearch.trim() && (
+                <span>Ürün: <strong>{appliedProductSearch}</strong></span>
+              )}
+            </p>
+          )}
+        </div>
+      </section>
 
       <section className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -280,15 +342,17 @@ export default function Invoices({
                   </td>
                 </tr>
               )}
-              {!loading && filteredInvoices.length === 0 && (
+              {!loading && invoices.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-slate-400 text-sm">
-                    {search.trim() ? 'Arama kriterine uygun fatura bulunamadı.' : 'Kayıt bulunamadı.'}
+                    {hasActiveSearch
+                      ? 'Arama kriterine uygun fatura bulunamadı.'
+                      : 'Kayıt bulunamadı.'}
                   </td>
                 </tr>
               )}
               {!loading &&
-                filteredInvoices.map((inv) => (
+                invoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-slate-50/60">
                     <td className="px-4 py-3 text-sm font-semibold text-slate-900">
                       {inv.invoiceNo}

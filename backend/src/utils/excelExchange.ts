@@ -251,6 +251,27 @@ export async function importProductsExcel(
   const categoryCache = new Map<string, number>();
   const categoriesCreated = { count: 0 };
 
+  const existingCategories = await prisma.category.findMany({ select: { id: true, name: true } });
+  for (const category of existingCategories) {
+    categoryCache.set(category.name, category.id);
+  }
+
+  type ParsedRow = {
+    rowIndex: number;
+    sku: string;
+    name: string;
+    categoryName: string | null;
+    costPrice: number;
+    priceTl: number;
+    priceUsd: number;
+    barcodeRaw: string | null;
+    merkezQty: number;
+    cinIadeQty: number;
+    hasCinIadeColumn: boolean;
+  };
+
+  const parsedRows: ParsedRow[] = [];
+
   for (const [index, row] of rows.entries()) {
     const sku = asString(row.StokKodu);
     const name = asString(row.StokAdi);
@@ -261,71 +282,124 @@ export async function importProductsExcel(
       continue;
     }
 
-    const categoryName = optionalString(row.Kategori);
-    const costPrice = asNumber(row.AlisFiyati, 0);
-    const priceTl = asNumber(row.SatisFiyati, 0);
-    const priceUsd =
-      asNumber(row.SatisUsd, 0) || (priceTl > 0 ? priceTl / 46.37 : 0);
-    const barcodeRaw = optionalString(row.Barkod);
-    const merkezQty = asNumber(row.MerkezDepo ?? row.Bakiye, 0);
-    const cinIadeQty = asNumber(row.CinIadeDepo, 0);
+    parsedRows.push({
+      rowIndex: index,
+      sku,
+      name,
+      categoryName: optionalString(row.Kategori),
+      costPrice: asNumber(row.AlisFiyati, 0),
+      priceTl: asNumber(row.SatisFiyati, 0),
+      priceUsd:
+        asNumber(row.SatisUsd, 0) || (asNumber(row.SatisFiyati, 0) > 0 ? asNumber(row.SatisFiyati, 0) / 46.37 : 0),
+      barcodeRaw: optionalString(row.Barkod),
+      merkezQty: asNumber(row.MerkezDepo ?? row.Bakiye, 0),
+      cinIadeQty: asNumber(row.CinIadeDepo, 0),
+      hasCinIadeColumn: row.CinIadeDepo != null && row.CinIadeDepo !== '',
+    });
+  }
+
+  const BATCH_SIZE = 50;
+  const TX_TIMEOUT_MS = 120_000;
+
+  const importRow = async (
+    tx: Prisma.TransactionClient,
+    item: ParsedRow,
+    existingBySku: Map<string, number>
+  ) => {
+    let categoryId: number | undefined;
+    if (item.categoryName) {
+      categoryId = await findOrCreateCategory(
+        tx,
+        item.categoryName,
+        categoryCache,
+        categoriesCreated
+      );
+    }
+
+    const categoryUpdate =
+      item.categoryName != null ? { categoryId: categoryId ?? null } : {};
+
+    const existingId = existingBySku.get(item.sku);
+    const product = existingId
+      ? await tx.product.update({
+          where: { id: existingId },
+          data: {
+            name: item.name,
+            costPrice: item.costPrice,
+            priceTl: item.priceTl,
+            priceUsd: item.priceUsd,
+            ...categoryUpdate,
+            ...(item.barcodeRaw ? { barcode: item.barcodeRaw } : { barcode: null }),
+          },
+        })
+      : await tx.product.create({
+          data: {
+            sku: item.sku,
+            name: item.name,
+            costPrice: item.costPrice,
+            priceTl: item.priceTl,
+            priceUsd: item.priceUsd,
+            ...categoryUpdate,
+            ...(item.barcodeRaw ? { barcode: item.barcodeRaw } : {}),
+          },
+        });
+
+    existingBySku.set(item.sku, product.id);
+    await upsertStock(tx, product.id, merkezId, item.merkezQty);
+    if (item.hasCinIadeColumn) {
+      await upsertStock(tx, product.id, cinIadeId, item.cinIadeQty);
+    }
+
+    return existingId ? 'updated' : 'created';
+  };
+
+  for (let offset = 0; offset < parsedRows.length; offset += BATCH_SIZE) {
+    const batch = parsedRows.slice(offset, offset + BATCH_SIZE);
 
     try {
-      const existing = await prisma.product.findUnique({ where: { sku } });
+      await prisma.$transaction(
+        async (tx) => {
+          const skus = batch.map((item) => item.sku);
+          const existingProducts = await tx.product.findMany({
+            where: { sku: { in: skus } },
+            select: { id: true, sku: true },
+          });
+          const existingBySku = new Map(existingProducts.map((p) => [p.sku, p.id]));
 
-      await prisma.$transaction(async (tx) => {
-        let categoryId: number | undefined;
-        if (categoryName) {
-          categoryId = await findOrCreateCategory(
-            tx,
-            categoryName,
-            categoryCache,
-            categoriesCreated
+          for (const item of batch) {
+            const result = await importRow(tx, item, existingBySku);
+            if (result === 'updated') updated += 1;
+            else created += 1;
+          }
+        },
+        { timeout: TX_TIMEOUT_MS }
+      );
+    } catch {
+      for (const item of batch) {
+        try {
+          await prisma.$transaction(
+            async (tx) => {
+              const existing = await tx.product.findUnique({
+                where: { sku: item.sku },
+                select: { id: true },
+              });
+              const existingBySku = new Map<string, number>();
+              if (existing) existingBySku.set(item.sku, existing.id);
+              const result = await importRow(tx, item, existingBySku);
+              if (result === 'updated') updated += 1;
+              else created += 1;
+            },
+            { timeout: TX_TIMEOUT_MS }
+          );
+        } catch (error) {
+          skipped += 1;
+          errors.push(
+            `Satir ${item.rowIndex + 2} (${item.sku}): ${
+              error instanceof Error ? error.message : 'Kayit hatasi'
+            }`
           );
         }
-
-        const categoryUpdate =
-          categoryName != null ? { categoryId: categoryId ?? null } : {};
-
-        const product = existing
-          ? await tx.product.update({
-              where: { sku },
-              data: {
-                name,
-                costPrice,
-                priceTl,
-                priceUsd,
-                ...categoryUpdate,
-                ...(barcodeRaw ? { barcode: barcodeRaw } : { barcode: null }),
-              },
-            })
-          : await tx.product.create({
-              data: {
-                sku,
-                name,
-                costPrice,
-                priceTl,
-                priceUsd,
-                ...categoryUpdate,
-                ...(barcodeRaw ? { barcode: barcodeRaw } : {}),
-              },
-            });
-
-        await upsertStock(tx, product.id, merkezId, merkezQty);
-        if (row.CinIadeDepo != null && row.CinIadeDepo !== '') {
-          await upsertStock(tx, product.id, cinIadeId, cinIadeQty);
-        }
-      });
-
-      if (existing) updated += 1;
-      else created += 1;
-    } catch (error) {
-      skipped += 1;
-      errors.push(
-        `Satir ${index + 2} (${sku}): ${
-          error instanceof Error ? error.message : 'Kayit hatasi'
-        }`
-      );
+      }
     }
   }
 
