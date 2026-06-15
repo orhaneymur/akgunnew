@@ -100,6 +100,16 @@ export default function F2ProductList({
   );
 }
 
+export function resolveSalesUnitPriceTl(product: F2Product, partySelected: boolean) {
+  if (partySelected && product.lastPartyPriceTl != null) {
+    return product.lastPartyPriceTl;
+  }
+  if (partySelected && product.lastSoldPrice != null) {
+    return product.lastSoldPrice;
+  }
+  return product.priceTl;
+}
+
 export function resolveSalesUnitPriceUsd(
   product: F2Product,
   partySelected: boolean,

@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: since1907/akgun-frontend:v1.7.4
+          image: since1907/akgun-frontend:v1.7.5
           imagePullPolicy: Always
           ports:
             - name: http

@@ -129,6 +129,15 @@ function calcLineTotalTl(item: StoreItem): number {
   return base * (1 - discount / 100);
 }
 
+function parseInvoiceDateTime(dateStr?: string): Date | undefined {
+  if (!dateStr?.trim()) return undefined;
+  const parts = dateStr.trim().split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return undefined;
+  const [year, month, day] = parts;
+  const now = new Date();
+  return new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds());
+}
+
 function isCashLikePayment(method: string): boolean {
   return method === 'Nakit' || method === 'EFT/Havale' || method === 'Kart';
 }
@@ -2016,7 +2025,7 @@ app.post<{
   };
 }>('/api/sales/store', async (request, reply) => {
   const {
-    customerId,
+    customerId: rawCustomerId,
     branchId,
     safeId,
     paymentMethod,
@@ -2031,7 +2040,20 @@ app.post<{
     items,
   } = request.body;
 
-  if (!customerId || !branchId || !safeId || !paymentMethod || !items?.length) {
+  const customerId = Number(rawCustomerId);
+  const parsedBranchId = Number(branchId);
+  const parsedSafeId = Number(safeId);
+
+  if (
+    !Number.isFinite(customerId) ||
+    customerId <= 0 ||
+    !Number.isFinite(parsedBranchId) ||
+    parsedBranchId <= 0 ||
+    !Number.isFinite(parsedSafeId) ||
+    parsedSafeId <= 0 ||
+    !paymentMethod ||
+    !items?.length
+  ) {
     return reply.status(400).send({
       success: false,
       message: 'Eksik veya geçersiz istek gövdesi.',
@@ -2039,12 +2061,26 @@ app.post<{
     });
   }
 
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: { id: true, code: true, name: true },
+  });
+
+  if (!customer) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Seçilen müşteri bulunamadı. Lütfen listeden müşteri seçin.',
+      errors: null,
+    });
+  }
+
   const rate = exchangeRate > 0 ? exchangeRate : 1;
-  const totalAmountUsd = items.reduce(
-    (sum, item) => sum + calcLineTotalUsd(item),
+  const totalAmountTl = items.reduce(
+    (sum, item) => sum + calcLineTotalTl(item),
     0
   );
-  const totalAmountTl = totalAmountUsd * rate;
+  const totalAmountUsd = totalAmountTl / rate;
+  const invoiceCreatedAt = parseInvoiceDateTime(invoiceDate);
 
   try {
     const invoice = await prisma.$transaction(async (tx) => {
@@ -2058,9 +2094,9 @@ app.post<{
         data: {
           invoiceNo,
           type: 'SATIS',
-          customerId,
-          safeId,
-          branchId,
+          customerId: customer.id,
+          safeId: parsedSafeId,
+          branchId: parsedBranchId,
           userId: matchedUser?.id,
           paymentMethod,
           paymentType: paymentType ?? null,
@@ -2072,10 +2108,10 @@ app.post<{
           orderNotes: orderNotes ?? null,
           totalAmountTl,
           totalAmountUsd,
-          ...(invoiceDate ? { createdAt: new Date(invoiceDate) } : {}),
+          ...(invoiceCreatedAt ? { createdAt: invoiceCreatedAt } : {}),
           items: {
             create: items.map((item) => {
-              const lineTotal = calcLineTotalUsd(item);
+              const lineTotal = calcLineTotalTl(item);
               return {
                 productId: item.productId,
                 quantity: item.quantity,
@@ -2086,7 +2122,10 @@ app.post<{
             }),
           },
         },
-        include: { items: true },
+        include: {
+          items: true,
+          customer: { select: { id: true, code: true, name: true } },
+        },
       });
 
       if (!isPreOrder) {
@@ -2130,14 +2169,14 @@ app.post<{
 
       if (isCashLikePayment(paymentMethod)) {
         await tx.safe.update({
-          where: { id: safeId },
+          where: { id: parsedSafeId },
           data: { balance: { increment: totalAmountTl } },
         });
 
         await tx.transaction.create({
           data: {
-            safeId,
-            customerId,
+            safeId: parsedSafeId,
+            customerId: customer.id,
             type: 'GIRIS',
             amount: totalAmountTl,
             description: `${invoiceNo} satış tahsilatı (${paymentMethod})`,
@@ -2145,7 +2184,7 @@ app.post<{
         });
       } else if (paymentMethod === 'Cari') {
         await tx.customer.update({
-          where: { id: customerId },
+          where: { id: customer.id },
           data: { balance: { increment: totalAmountTl } },
         });
       }

@@ -311,6 +311,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.7.2 | F2 arama kutusu yazma/odak düzeltmesi, Esc ve ✕ ile kapanma, fatura listesi arama |
 | v1.7.3 | Stok Excel içe aktarımda Kategori otomatik oluşturma, Bakiye sütunu desteği |
 | v1.7.4 | Fatura müşteri/ürün arama, Excel 504 timeout düzeltmesi, toplu stok import hızlandırma |
+| v1.7.5 | Satış fiyatı TL bazlı kayıt, fatura tarihi/saat düzeltmesi, müşteri seçim doğrulama |
 
 ---
 
