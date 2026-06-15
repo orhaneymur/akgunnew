@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { FileInput, Save, Search, ShoppingCart, X } from 'lucide-react';
+import ProductSearchPopover from '../components/ProductSearchPopover';
 import { useExchangeRates } from '../hooks/useExchangeRates';
 import {
   API_BASE,
@@ -707,63 +708,43 @@ export default function PurchaseCreate({
         </div>
       </section>
 
-      {searchModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4"
-          onKeyDown={handleModalKeyDown}
-        >
-          <div
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
-            onClick={() => setSearchModal(false)}
-          />
-          <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="bg-rose-600 px-5 py-4 text-white flex items-center justify-between">
-              <h3 className="font-semibold">Ürün Ara</h3>
-              <button type="button" onClick={() => setSearchModal(false)}>
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4 border-b border-slate-100">
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="SKU, barkod veya ürün adı..."
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:border-rose-500 focus:ring-rose-500"
-              />
-            </div>
-            <ul className="max-h-80 overflow-y-auto divide-y divide-slate-100">
-              {searchLoading && (
-                <li className="px-4 py-6 text-center text-slate-400 text-sm">
-                  Aranıyor...
-                </li>
-              )}
-              {!searchLoading &&
-                searchResults.map((product, index) => (
-                  <li
-                    key={product.id}
-                    onClick={() => addProductToCart(product)}
-                    className={`px-4 py-3 cursor-pointer ${
-                      index === focusedIndex ? 'bg-rose-50' : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    <p className="text-sm font-semibold text-slate-900">{product.name}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {product.sku} · Maliyet: {formatMoney(product.costPrice)} · Liste:{' '}
-                      {formatMoney(product.priceTl)}
-                    </p>
-                  </li>
-                ))}
-              {!searchLoading && searchQuery.trim() && searchResults.length === 0 && (
-                <li className="px-4 py-6 text-center text-slate-400 text-sm">
-                  Sonuç bulunamadı
-                </li>
-              )}
-            </ul>
-          </div>
-        </div>
-      )}
+      <ProductSearchPopover
+        open={searchModal}
+        onClose={() => setSearchModal(false)}
+        title="Ürün Ara"
+        headerClassName="bg-rose-600"
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchInputRef={searchInputRef}
+        onKeyDown={handleModalKeyDown}
+        searchLoading={searchLoading}
+        showEmpty={!searchQuery.trim()}
+        emptyHint="SKU, barkod veya ürün adı yazın."
+      >
+        {!searchLoading && (
+          <ul className="divide-y divide-slate-100">
+            {searchResults.map((product, index) => (
+              <li
+                key={product.id}
+                onClick={() => addProductToCart(product)}
+                className={`px-3 py-2 cursor-pointer ${
+                  index === focusedIndex ? 'bg-rose-50' : 'hover:bg-slate-50'
+                }`}
+              >
+                <p className="text-xs font-semibold text-slate-900">{product.name}</p>
+                <p className="text-[10px] text-slate-500">
+                  {product.sku} · {formatMoney(product.costPrice)}
+                </p>
+              </li>
+            ))}
+            {searchQuery.trim() && searchResults.length === 0 && (
+              <li className="px-3 py-6 text-center text-slate-400 text-xs">
+                Sonuç bulunamadı
+              </li>
+            )}
+          </ul>
+        )}
+      </ProductSearchPopover>
     </div>
   );
 }

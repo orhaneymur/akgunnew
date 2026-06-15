@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { Printer, Save, Search, ShoppingCart, X } from 'lucide-react';
+import ProductSearchPopover from '../components/ProductSearchPopover';
 import {
   API_BASE,
   DEFAULT_USD,
@@ -1020,103 +1021,59 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
         </aside>
       </div>
 
-      {/* F2 MODAL */}
-      {f2Modal && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4"
-          onKeyDown={handleModalKeyDown}
-        >
-          <div
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
-            onClick={closeF2Modal}
-          />
-          <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="bg-indigo-600 px-5 py-4 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold">Hızlı Stok Arama</h3>
-                  <p className="text-indigo-200 text-xs mt-0.5">
-                    ↑↓ gezin · Enter ekle · Esc kapat
+      {/* F2 — kompakt panel (sayfa arkada kullanılabilir) */}
+      <ProductSearchPopover
+        open={f2Modal}
+        onClose={closeF2Modal}
+        title="Hızlı Stok Arama"
+        hint="↑↓ gezin · Enter ekle · Esc kapat"
+        headerClassName="bg-indigo-600"
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchInputRef={searchInputRef}
+        onKeyDown={handleModalKeyDown}
+        searchLoading={searchLoading}
+        showEmpty={!searchQuery}
+        emptyHint="Aramaya başlayın veya barkod okutun."
+      >
+        {!searchLoading && searchResults.length > 0 && (
+          <ul className="divide-y divide-slate-100">
+            {searchResults.map((product, index) => (
+              <li
+                key={product.id}
+                onClick={() => addProductToCart(product)}
+                onMouseEnter={() => setFocusedIndex(index)}
+                className={`px-3 py-2 cursor-pointer flex items-center justify-between gap-2 transition-colors ${
+                  focusedIndex === index
+                    ? 'bg-indigo-50 border-l-2 border-indigo-600'
+                    : 'hover:bg-slate-50 border-l-2 border-transparent'
+                }`}
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-slate-900 truncate">
+                    {product.name}
                   </p>
+                  <p className="text-[10px] text-slate-500">{product.sku}</p>
+                  {product.lastSoldPriceUsd != null && (
+                    <p className="text-[10px] text-amber-600">
+                      Son: {formatUsd(product.lastSoldPriceUsd)}
+                    </p>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={closeF2Modal}
-                  className="p-1 hover:bg-indigo-500 rounded"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 border-b border-slate-100">
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Ürün adı veya SKU / barkod..."
-                autoComplete="off"
-                className="w-full rounded-lg border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-base px-4 py-3 border"
-              />
-            </div>
-
-            <div className="max-h-80 overflow-y-auto">
-              {searchLoading && (
-                <p className="px-4 py-8 text-center text-slate-400 text-sm">
-                  Aranıyor...
-                </p>
-              )}
-              {!searchLoading && searchResults.length > 0 && (
-                <ul className="divide-y divide-slate-100">
-                  {searchResults.map((product, index) => (
-                    <li
-                      key={product.id}
-                      onClick={() => addProductToCart(product)}
-                      onMouseEnter={() => setFocusedIndex(index)}
-                      className={`px-4 py-3 cursor-pointer flex items-center justify-between gap-4 transition-colors ${
-                        focusedIndex === index
-                          ? 'bg-indigo-50 border-l-4 border-indigo-600'
-                          : 'hover:bg-slate-50 border-l-4 border-transparent'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-900 truncate">
-                          {product.name}
-                        </p>
-                        <p className="text-xs text-slate-500">{product.sku}</p>
-                        {product.lastSoldPriceUsd != null && (
-                          <p className="text-xs text-amber-600 mt-0.5">
-                            Son satış: {formatUsd(product.lastSoldPriceUsd)}
-                          </p>
-                        )}
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-sm font-bold text-slate-900 tabular-nums">
-                          {formatUsd(product.priceUsd)}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {formatMoney(product.priceTl)}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {!searchLoading && searchQuery && searchResults.length === 0 && (
-                <p className="px-4 py-8 text-center text-slate-400 text-sm">
-                  Sonuç bulunamadı.
-                </p>
-              )}
-              {!searchLoading && !searchQuery && (
-                <p className="px-4 py-8 text-center text-slate-400 text-sm">
-                  Aramaya başlamak için yazın veya barkod okutun.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+                <div className="text-right shrink-0">
+                  <p className="text-xs font-bold text-slate-900 tabular-nums">
+                    {formatUsd(product.priceUsd)}
+                  </p>
+                  <p className="text-[10px] text-slate-500">{formatMoney(product.priceTl)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        {!searchLoading && searchQuery && searchResults.length === 0 && (
+          <p className="px-3 py-6 text-center text-slate-400 text-xs">Sonuç bulunamadı.</p>
+        )}
+      </ProductSearchPopover>
     </div>
   );
 }
