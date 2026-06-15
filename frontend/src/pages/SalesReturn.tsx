@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { RotateCcw, Save, Search, ShoppingCart, X } from 'lucide-react';
+import { FileText, RotateCcw, Save } from 'lucide-react';
 import { useExchangeRates } from '../hooks/useExchangeRates';
 import { depotLabel } from '../lib/depots';
 import {
   API_BASE,
   ensureArray,
+  formatDate,
   formatMoney,
   type PaginatedListResponse,
 } from '../lib/api';
@@ -25,27 +26,40 @@ type Customer = {
   creditLimit: number;
   balance: number;
 };
-type Product = {
+type SalesInvoice = {
   id: number;
-  sku: string;
-  barcode: string | null;
-  name: string;
-  costPrice: number;
-  priceTl: number;
-  priceUsd: number;
-  lastSoldPrice?: number | null;
+  invoiceNo: string;
+  type: string;
+  totalAmountTl: number;
+  createdAt: string;
+  customer: { id: number; code: string; name: string };
 };
-type CartItem = {
-  rowId: string;
-  product: Product;
+type InvoiceLine = {
+  id: number;
+  productId: number;
   quantity: number;
   unitPrice: number;
-  isChinaReturn: boolean;
+  totalPrice: number;
+  returnedQty: number;
+  returnableQty: number;
+  product: {
+    id: number;
+    sku: string;
+    name: string;
+    barcode: string | null;
+  };
 };
-type InitData = {
-  branches: Branch[];
-  safes: Safe[];
-  customers: Customer[];
+type InvoiceDetail = {
+  id: number;
+  invoiceNo: string;
+  exchangeRate: number;
+  customer: Customer;
+  items: InvoiceLine[];
+};
+type ReturnDraft = {
+  sourceInvoiceItemId: number;
+  returnQty: number;
+  isChinaReturn: boolean;
 };
 
 type SalesReturnProps = {
@@ -54,56 +68,55 @@ type SalesReturnProps = {
 };
 
 export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps) {
-  const [initData, setInitData] = useState<InitData>({
-    branches: [],
-    safes: [],
-    customers: [],
-  });
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [safes, setSafes] = useState<Safe[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>([]);
+  const [invoiceDetail, setInvoiceDetail] = useState<InvoiceDetail | null>(null);
+  const [returnDrafts, setReturnDrafts] = useState<ReturnDraft[]>([]);
+
   const [selectedCustomer, setSelectedCustomer] = useState<number | ''>('');
   const [selectedBranch, setSelectedBranch] = useState<number | ''>('');
   const [selectedSafe, setSelectedSafe] = useState<number | ''>('');
-  const [searchModal, setSearchModal] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Product[]>([]);
-  const [focusedIndex, setFocusedIndex] = useState(-1);
-  const [searchLoading, setSearchLoading] = useState(false);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | ''>('');
+
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const { rates } = useExchangeRates();
-  const exchangeRate = rates.usd;
 
   const branchSafes = useMemo(
     () =>
-      initData.safes.filter(
+      safes.filter(
         (safe) => selectedBranch !== '' && safe.branchId === selectedBranch
       ),
-    [initData.safes, selectedBranch]
+    [safes, selectedBranch]
   );
 
-  const totalTl = useMemo(
-    () => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
-    [cart]
+  const selectedLines = useMemo(
+    () => returnDrafts.filter((row) => row.returnQty > 0),
+    [returnDrafts]
   );
 
-  const chinaReturnCount = useMemo(
-    () => cart.filter((item) => item.isChinaReturn).length,
-    [cart]
-  );
+  const totalTl = useMemo(() => {
+    if (!invoiceDetail) return 0;
+    return selectedLines.reduce((sum, row) => {
+      const line = invoiceDetail.items.find((i) => i.id === row.sourceInvoiceItemId);
+      if (!line) return sum;
+      return sum + row.returnQty * line.unitPrice;
+    }, 0);
+  }, [invoiceDetail, selectedLines]);
 
-  const stockReturnCount = cart.length - chinaReturnCount;
+  const chinaReturnCount = selectedLines.filter((r) => r.isChinaReturn).length;
+  const stockReturnCount = selectedLines.length - chinaReturnCount;
 
   const notify = useCallback(
-    (type: 'success' | 'error', message: string) => {
-      onNotify?.(type, message);
-    },
+    (type: 'success' | 'error', message: string) => onNotify?.(type, message),
     [onNotify]
   );
 
-  const loadInitData = useCallback(async () => {
+  const loadInit = useCallback(async () => {
     try {
       const [initRes, customersRes] = await Promise.all([
         axios.get<{
@@ -112,27 +125,24 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
         }>(`${API_BASE}/api/sales/init`),
         axios.get<PaginatedListResponse<Customer>>(
           `${API_BASE}/api/customers`,
-          { params: { page: 1, limit: 200 } }
+          { params: { page: 1, limit: 500 } }
         ),
       ]);
 
       if (initRes.data.success) {
-        const branches = ensureArray(initRes.data.data.branches);
-        const safes = ensureArray(initRes.data.data.safes);
-        const customers = customersRes.data.success
-          ? ensureArray(customersRes.data.data)
-          : [];
-
-        setInitData({ branches, safes, customers });
-
-        if (branches.length > 0) {
-          setSelectedBranch(branches[0].id);
-          const safe = safes.find((s) => s.branchId === branches[0].id);
+        const branchList = ensureArray(initRes.data.data.branches);
+        const safeList = ensureArray(initRes.data.data.safes);
+        setBranches(branchList);
+        setSafes(safeList);
+        if (branchList.length > 0) {
+          setSelectedBranch(branchList[0].id);
+          const safe = safeList.find((s) => s.branchId === branchList[0].id);
           if (safe) setSelectedSafe(safe.id);
         }
-        if (customers.length > 0) {
-          setSelectedCustomer(customers[0].id);
-        }
+      }
+
+      if (customersRes.data.success) {
+        setCustomers(ensureArray(customersRes.data.data));
       }
     } catch {
       notify('error', 'Başlangıç verileri yüklenemedi.');
@@ -140,86 +150,80 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
   }, [notify]);
 
   useEffect(() => {
-    loadInitData();
-  }, [loadInitData]);
+    loadInit();
+  }, [loadInit]);
 
   useEffect(() => {
-    if (!searchModal) return;
-    const query = searchQuery.trim();
-    if (!query) {
-      setSearchResults([]);
-      setFocusedIndex(-1);
+    if (selectedCustomer === '') {
+      setSalesInvoices([]);
+      setSelectedInvoiceId('');
+      setInvoiceDetail(null);
+      setReturnDrafts([]);
       return;
     }
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    searchDebounceRef.current = setTimeout(async () => {
-      setSearchLoading(true);
-      try {
-        const params: Record<string, string> = { search: query };
-        if (selectedCustomer !== '') {
-          params.customerId = String(selectedCustomer);
+
+    setLoadingInvoices(true);
+    axios
+      .get<{ success: boolean; data: SalesInvoice[] }>(
+        `${API_BASE}/api/sales/invoices`,
+        { params: { customerId: selectedCustomer, type: 'SATIS' } }
+      )
+      .then((res) => {
+        if (res.data.success) {
+          setSalesInvoices(res.data.data);
         }
-        const response = await axios.get<{ success: boolean; data: Product[] }>(
-          `${API_BASE}/api/sales/products`,
-          { params }
-        );
-        if (response.data.success) {
-          setSearchResults(response.data.data);
-          setFocusedIndex(response.data.data.length > 0 ? 0 : -1);
-        }
-      } catch {
-        setSearchResults([]);
-      } finally {
-        setSearchLoading(false);
-      }
-    }, 300);
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    };
-  }, [searchQuery, searchModal, selectedCustomer]);
+      })
+      .catch(() => notify('error', 'Satış faturaları yüklenemedi.'))
+      .finally(() => setLoadingInvoices(false));
+
+    setSelectedInvoiceId('');
+    setInvoiceDetail(null);
+    setReturnDrafts([]);
+  }, [selectedCustomer, notify]);
 
   useEffect(() => {
-    if (searchModal) {
-      setTimeout(() => searchInputRef.current?.focus(), 50);
+    if (selectedInvoiceId === '') {
+      setInvoiceDetail(null);
+      setReturnDrafts([]);
+      return;
     }
-  }, [searchModal]);
 
-  const addProductToCart = (product: Product) => {
-    const unitPrice =
-      product.lastSoldPrice != null ? product.lastSoldPrice : product.priceTl;
-
-    setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        );
-      }
-      return [
-        ...prev,
-        {
-          rowId: `row-${product.id}-${Date.now()}`,
-          product,
-          quantity: 1,
-          unitPrice,
-          isChinaReturn: false,
-        },
-      ];
-    });
-    setSearchModal(false);
-    setSearchQuery('');
-    setSearchResults([]);
-  };
+    setLoadingDetail(true);
+    axios
+      .get<{ success: boolean; data: InvoiceDetail }>(
+        `${API_BASE}/api/sales/invoices/${selectedInvoiceId}`
+      )
+      .then((res) => {
+        if (res.data.success) {
+          const detail = res.data.data;
+          setInvoiceDetail(detail);
+          setReturnDrafts(
+            detail.items.map((line) => ({
+              sourceInvoiceItemId: line.id,
+              returnQty: 0,
+              isChinaReturn: false,
+            }))
+          );
+        }
+      })
+      .catch(() => notify('error', 'Fatura detayı yüklenemedi.'))
+      .finally(() => setLoadingDetail(false));
+  }, [selectedInvoiceId, notify]);
 
   const handleSubmit = async () => {
-    if (selectedCustomer === '' || selectedBranch === '' || selectedSafe === '') {
-      notify('error', 'Müşteri, şube ve kasa seçin.');
+    if (
+      selectedCustomer === '' ||
+      selectedBranch === '' ||
+      selectedSafe === '' ||
+      selectedInvoiceId === '' ||
+      !invoiceDetail
+    ) {
+      notify('error', 'Müşteri, fatura ve kasa seçimlerini tamamlayın.');
       return;
     }
-    if (cart.length === 0) {
-      notify('error', 'İade için en az bir ürün ekleyin.');
+
+    if (selectedLines.length === 0) {
+      notify('error', 'İade için en az bir satırda miktar girin.');
       return;
     }
 
@@ -229,12 +233,16 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
         customerId: Number(selectedCustomer),
         branchId: Number(selectedBranch),
         safeId: Number(selectedSafe),
-        exchangeRate,
-        items: cart.map((item) => ({
-          productId: item.product.id,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          isChinaReturn: item.isChinaReturn,
+        originalInvoiceId: Number(selectedInvoiceId),
+        exchangeRate: invoiceDetail.exchangeRate || rates.usd,
+        items: selectedLines.map((row) => ({
+          sourceInvoiceItemId: row.sourceInvoiceItemId,
+          productId: invoiceDetail.items.find((i) => i.id === row.sourceInvoiceItemId)
+            ?.productId,
+          quantity: row.returnQty,
+          unitPrice: invoiceDetail.items.find((i) => i.id === row.sourceInvoiceItemId)
+            ?.unitPrice,
+          isChinaReturn: row.isChinaReturn,
         })),
       });
 
@@ -248,11 +256,17 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
         }
         notify(
           'success',
-          `İade kaydedildi! ${parts.join(' · ')} · ${response.data.data?.invoiceNo ?? ''}`
+          `İade kaydedildi (${invoiceDetail.invoiceNo}) · ${parts.join(' · ')} · ${response.data.data?.invoiceNo ?? ''}`
         );
-        setCart([]);
+        setSelectedInvoiceId('');
+        setInvoiceDetail(null);
+        setReturnDrafts([]);
         onDataChange?.();
-        await loadInitData();
+        const invRes = await axios.get<{ success: boolean; data: SalesInvoice[] }>(
+          `${API_BASE}/api/sales/invoices`,
+          { params: { customerId: selectedCustomer, type: 'SATIS' } }
+        );
+        if (invRes.data.success) setSalesInvoices(invRes.data.data);
       }
     } catch (error) {
       const message =
@@ -274,8 +288,7 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
         <div>
           <h1 className="text-xl font-bold text-slate-900">Satış İade</h1>
           <p className="text-sm text-slate-500">
-            Sağlam ürünler {depotLabel('MERKEZ_DEPO')}&apos;ya · arızalı ürünler{' '}
-            {depotLabel('CIN_IADE_DEPO')}&apos;na gider
+            Müşterinin satış faturasından ürün seçerek iade alın — kaynak fatura takibi
           </p>
         </div>
       </div>
@@ -284,6 +297,25 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
         <div className="xl:col-span-2 space-y-4">
           <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Müşteri
+                </label>
+                <select
+                  value={selectedCustomer}
+                  onChange={(e) =>
+                    setSelectedCustomer(e.target.value ? Number(e.target.value) : '')
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Müşteri seçin...</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} — {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   Şube
@@ -295,29 +327,9 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
                   }
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 >
-                  {initData.branches.map((b) => (
+                  {branches.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Müşteri
-                </label>
-                <select
-                  value={selectedCustomer}
-                  onChange={(e) =>
-                    setSelectedCustomer(
-                      e.target.value ? Number(e.target.value) : ''
-                    )
-                  }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                >
-                  {initData.customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} — {c.name}
                     </option>
                   ))}
                 </select>
@@ -342,158 +354,183 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
               </div>
             </div>
 
-            <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-900">
-              Her satır için <strong>Çin İade</strong> kutusunu işaretleyin. Arızalı
-              ürünler birikerek Çin&apos;e gönderilecek; işaretsiz ürünler satış
-              stoğuna geri yüklenir.
-            </div>
-          </section>
-
-          <button
-            type="button"
-            onClick={() => setSearchModal(true)}
-            className="w-full flex items-center justify-center gap-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl py-4 px-6 font-semibold"
-          >
-            <Search className="w-5 h-5" />
-            İade Edilecek Ürünü Bul
-          </button>
-
-          <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center gap-2">
-              <ShoppingCart className="w-5 h-5 text-amber-600" />
-              <h2 className="font-semibold text-slate-800">İade Sepeti</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
-                      Ürün
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase w-28">
-                      Çin İade
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase w-24">
-                      Adet
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase w-32">
-                      Birim Fiyat
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase w-32">
-                      Toplam
-                    </th>
-                    <th className="px-4 py-3 w-12" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {cart.map((item) => (
-                    <tr
-                      key={item.rowId}
-                      className={item.isChinaReturn ? 'bg-orange-50/50' : undefined}
-                    >
-                      <td className="px-4 py-3">
-                        <p className="text-sm font-medium text-slate-900">
-                          {item.product.name}
-                        </p>
-                        <p className="text-xs text-slate-500">{item.product.sku}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          →{' '}
-                          {item.isChinaReturn
-                            ? depotLabel('CIN_IADE_DEPO')
-                            : depotLabel('MERKEZ_DEPO')}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <label className="inline-flex items-center justify-center gap-1.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={item.isChinaReturn}
-                            onChange={(e) =>
-                              setCart((prev) =>
-                                prev.map((row) =>
-                                  row.rowId === item.rowId
-                                    ? { ...row, isChinaReturn: e.target.checked }
-                                    : row
-                                )
-                              )
-                            }
-                            className="w-4 h-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                          />
-                          <span className="text-xs text-slate-600 sr-only sm:not-sr-only">
-                            Çin
-                          </span>
-                        </label>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={item.quantity}
-                          onChange={(e) =>
-                            setCart((prev) =>
-                              prev.map((row) =>
-                                row.rowId === item.rowId
-                                  ? { ...row, quantity: Number(e.target.value) }
-                                  : row
-                              )
-                            )
-                          }
-                          className="w-20 text-right rounded-md border border-slate-300 text-sm px-2 py-1"
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={item.unitPrice}
-                          onChange={(e) =>
-                            setCart((prev) =>
-                              prev.map((row) =>
-                                row.rowId === item.rowId
-                                  ? { ...row, unitPrice: Number(e.target.value) }
-                                  : row
-                              )
-                            )
-                          }
-                          className="w-28 text-right rounded-md border border-slate-300 text-sm px-2 py-1"
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm font-semibold">
-                        {formatMoney(item.quantity * item.unitPrice)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setCart((prev) =>
-                              prev.filter((row) => row.rowId !== item.rowId)
-                            )
-                          }
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
+            {selectedCustomer !== '' && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Kaynak Satış Faturası
+                </label>
+                <select
+                  value={selectedInvoiceId}
+                  onChange={(e) =>
+                    setSelectedInvoiceId(e.target.value ? Number(e.target.value) : '')
+                  }
+                  disabled={loadingInvoices}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">
+                    {loadingInvoices ? 'Faturalar yükleniyor...' : 'Fatura seçin...'}
+                  </option>
+                  {salesInvoices.map((inv) => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.invoiceNo} · {formatMoney(inv.totalAmountTl)} ·{' '}
+                      {formatDate(inv.createdAt)}
+                    </option>
                   ))}
-                  {cart.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center text-slate-400 text-sm">
-                        İade sepeti boş.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                </select>
+                {!loadingInvoices && salesInvoices.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Bu müşteriye ait satış faturası bulunamadı.
+                  </p>
+                )}
+              </div>
+            )}
           </section>
+
+          {selectedInvoiceId !== '' && (
+            <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-200 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-amber-600" />
+                <div>
+                  <h2 className="font-semibold text-slate-800">Fatura Kalemleri</h2>
+                  {invoiceDetail && (
+                    <p className="text-xs text-slate-500">
+                      {invoiceDetail.invoiceNo} · {invoiceDetail.customer.name}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {loadingDetail ? (
+                <p className="px-5 py-12 text-center text-slate-400 text-sm">
+                  Yükleniyor...
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-200">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
+                          Ürün
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase w-20">
+                          Satılan
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase w-20">
+                          İade Edildi
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase w-20">
+                          Kalan
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase w-24">
+                          İade Adet
+                        </th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase w-24">
+                          Çin İade
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase w-28">
+                          Birim Fiyat
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {invoiceDetail?.items.map((line) => {
+                        const draft = returnDrafts.find(
+                          (d) => d.sourceInvoiceItemId === line.id
+                        );
+                        const returnQty = draft?.returnQty ?? 0;
+                        const isChinaReturn = draft?.isChinaReturn ?? false;
+                        const disabled = line.returnableQty <= 0;
+
+                        return (
+                          <tr
+                            key={line.id}
+                            className={
+                              disabled
+                                ? 'bg-slate-50 text-slate-400'
+                                : isChinaReturn
+                                  ? 'bg-orange-50/50'
+                                  : undefined
+                            }
+                          >
+                            <td className="px-4 py-3">
+                              <p className="text-sm font-medium text-slate-900">
+                                {line.product.name}
+                              </p>
+                              <p className="text-xs text-slate-500">{line.product.sku}</p>
+                            </td>
+                            <td className="px-4 py-3 text-right text-sm">{line.quantity}</td>
+                            <td className="px-4 py-3 text-right text-sm">
+                              {line.returnedQty}
+                            </td>
+                            <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-700">
+                              {line.returnableQty}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                max={line.returnableQty}
+                                step="0.01"
+                                disabled={disabled}
+                                value={returnQty || ''}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  setReturnDrafts((prev) =>
+                                    prev.map((row) =>
+                                      row.sourceInvoiceItemId === line.id
+                                        ? {
+                                            ...row,
+                                            returnQty: Math.min(
+                                              Math.max(0, val),
+                                              line.returnableQty
+                                            ),
+                                          }
+                                        : row
+                                    )
+                                  );
+                                }}
+                                className="w-20 text-right rounded-md border border-slate-300 text-sm px-2 py-1 disabled:bg-slate-100"
+                              />
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <input
+                                type="checkbox"
+                                disabled={disabled || returnQty <= 0}
+                                checked={isChinaReturn}
+                                onChange={(e) =>
+                                  setReturnDrafts((prev) =>
+                                    prev.map((row) =>
+                                      row.sourceInvoiceItemId === line.id
+                                        ? { ...row, isChinaReturn: e.target.checked }
+                                        : row
+                                    )
+                                  )
+                                }
+                                className="w-4 h-4 rounded border-slate-300 text-orange-600"
+                              />
+                            </td>
+                            <td className="px-4 py-3 text-right text-sm">
+                              {formatMoney(line.unitPrice)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
         </div>
 
         <aside className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 sticky top-6 space-y-4 h-fit">
           <h2 className="font-semibold text-slate-800">İade Özeti</h2>
           <div className="text-2xl font-bold text-slate-900">{formatMoney(totalTl)}</div>
+          {invoiceDetail && (
+            <p className="text-xs text-slate-500">
+              Kaynak: <strong>{invoiceDetail.invoiceNo}</strong>
+            </p>
+          )}
           <div className="space-y-2 text-sm">
             <div className="flex justify-between text-slate-600">
               <span>{depotLabel('MERKEZ_DEPO')}</span>
@@ -507,7 +544,7 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitting || cart.length === 0}
+            disabled={submitting || selectedLines.length === 0}
             className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-400 text-white font-bold py-4 rounded-xl"
           >
             <Save className="w-5 h-5" />
@@ -515,56 +552,6 @@ export default function SalesReturn({ onNotify, onDataChange }: SalesReturnProps
           </button>
         </aside>
       </div>
-
-      {searchModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4">
-          <div
-            className="fixed inset-0 bg-slate-900/60"
-            onClick={() => setSearchModal(false)}
-          />
-          <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="bg-amber-600 px-5 py-4 text-white flex justify-between items-center">
-              <h3 className="font-semibold">Ürün Ara</h3>
-              <button type="button" onClick={() => setSearchModal(false)}>
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4">
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="SKU, barkod veya ürün adı..."
-                className="w-full rounded-lg border border-slate-300 px-4 py-3"
-              />
-            </div>
-            <div className="max-h-72 overflow-y-auto">
-              {searchLoading && (
-                <p className="py-8 text-center text-slate-400 text-sm">Aranıyor...</p>
-              )}
-              {!searchLoading &&
-                searchResults.map((product, index) => (
-                  <button
-                    key={product.id}
-                    type="button"
-                    onClick={() => addProductToCart(product)}
-                    onMouseEnter={() => setFocusedIndex(index)}
-                    className={`w-full text-left px-4 py-3 flex justify-between border-b border-slate-100 ${
-                      focusedIndex === index ? 'bg-amber-50' : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    <div>
-                      <p className="text-sm font-medium">{product.name}</p>
-                      <p className="text-xs text-slate-500">{product.sku}</p>
-                    </div>
-                    <span className="text-sm font-bold">{formatMoney(product.priceTl)}</span>
-                  </button>
-                ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

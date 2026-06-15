@@ -136,6 +136,9 @@ model Invoice {
   trackingNumber  String?
   totalAmountTl   Float         @default(0.0)
   totalAmountUsd  Float         @default(0.0)
+  originalInvoiceId Int?
+  originalInvoice   Invoice?    @relation("InvoiceReturns", fields: [originalInvoiceId], references: [id], onDelete: SetNull)
+  returnInvoices    Invoice[]   @relation("InvoiceReturns")
   customer        Customer      @relation(fields: [customerId], references: [id])
   safe            Safe          @relation(fields: [safeId], references: [id])
   branch          Branch        @relation(fields: [branchId], references: [id])
@@ -163,13 +166,16 @@ model Transaction {
 }
 
 model InvoiceItem {
-  id              Int     @id @default(autoincrement())
-  invoiceId       Int
-  productId       Int
-  quantity        Float
-  unitPrice       Float
-  discountPercent Float   @default(0)
-  totalPrice      Float
-  invoice         Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  product         Product @relation(fields: [productId], references: [id])
+  id                  Int           @id @default(autoincrement())
+  invoiceId           Int
+  productId           Int
+  quantity            Float
+  unitPrice           Float
+  discountPercent     Float         @default(0)
+  totalPrice          Float
+  sourceInvoiceItemId Int?
+  sourceInvoiceItem   InvoiceItem?  @relation("ItemReturns", fields: [sourceInvoiceItemId], references: [id], onDelete: SetNull)
+  returnedItems       InvoiceItem[] @relation("ItemReturns")
+  invoice             Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product             Product       @relation(fields: [productId], references: [id])
 }

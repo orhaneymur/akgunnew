@@ -5,7 +5,9 @@ import {
   ChevronRight,
   Layers,
   Package,
+  Pencil,
   Search,
+  X,
 } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
 import {
@@ -19,14 +21,33 @@ import {
 } from '../lib/api';
 import { depotLabel } from '../lib/depots';
 
-export default function StockList() {
+type StockListProps = {
+  onNotify?: (type: 'success' | 'error', message: string) => void;
+};
+
+export default function StockList({ onNotify }: StockListProps = {}) {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<Product | null>(null);
+  const [form, setForm] = useState({
+    sku: '',
+    name: '',
+    barcode: '',
+    costPrice: '',
+    priceTl: '',
+    priceUsd: '',
+  });
+  const [submitting, setSubmitting] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const notify = useCallback(
+    (type: 'success' | 'error', message: string) => onNotify?.(type, message),
+    [onNotify]
+  );
 
   const loadProducts = useCallback(async (query: string, pageNumber: number) => {
     setLoading(true);
@@ -80,6 +101,46 @@ export default function StockList() {
 
   const totalPages = getTotalPages(totalCount, LIST_PAGE_SIZE);
 
+  const openEdit = (product: Product, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditing(product);
+    setForm({
+      sku: product.sku,
+      name: product.name,
+      barcode: product.barcode ?? '',
+      costPrice: String(product.costPrice),
+      priceTl: String(product.priceTl),
+      priceUsd: String(product.priceUsd),
+    });
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    setSubmitting(true);
+    try {
+      await axios.put(`${API_BASE}/api/products/${editing.id}`, {
+        sku: form.sku.trim(),
+        name: form.name.trim(),
+        barcode: form.barcode.trim() || null,
+        costPrice: Number(form.costPrice),
+        priceTl: Number(form.priceTl),
+        priceUsd: Number(form.priceUsd),
+      });
+      notify('success', 'Ürün güncellendi.');
+      setEditing(null);
+      await loadProducts(search, page);
+    } catch (error) {
+      const message =
+        axios.isAxiosError(error) && error.response?.data?.message
+          ? String(error.response.data.message)
+          : 'Güncelleme başarısız.';
+      notify('error', message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -90,7 +151,7 @@ export default function StockList() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">Stok Listesi</h1>
             <p className="text-sm text-slate-500">
-              Gelişmiş sayfalama — {LIST_PAGE_SIZE} kayıt / sayfa
+              Düzenlenebilir stok kartları · {LIST_PAGE_SIZE} kayıt / sayfa
               {totalPages > 0 && ` · ${totalPages.toLocaleString('tr-TR')} sayfa`}
             </p>
           </div>
@@ -139,13 +200,14 @@ export default function StockList() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
                   Şube / Depo
                 </th>
+                <th className="px-4 py-3 w-12" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-4 py-12 text-center text-slate-400 text-sm"
                   >
                     Yükleniyor...
@@ -224,6 +286,16 @@ export default function StockList() {
                             )}
                           </div>
                         </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={(e) => openEdit(product, e)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                            title="Düzenle"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        </td>
                       </tr>
                       {isExpanded && stocks.length > 0 && (
                         <tr className="bg-slate-50/50">
@@ -259,7 +331,7 @@ export default function StockList() {
               {!loading && products.length === 0 && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-4 py-12 text-center text-slate-400 text-sm"
                   >
                     Aramanıza uygun ürün bulunamadı.
@@ -279,6 +351,111 @@ export default function StockList() {
           accent="indigo"
         />
       </section>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60" onClick={() => setEditing(null)} />
+          <form
+            onSubmit={handleSave}
+            className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <h3 className="font-semibold text-slate-900">Ürün Düzenle</h3>
+              <button type="button" onClick={() => setEditing(null)}>
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600">SKU</label>
+                <input
+                  required
+                  value={form.sku}
+                  onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">Ürün Adı</label>
+                <input
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">Barkod</label>
+                <input
+                  value={form.barcode}
+                  onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Maliyet</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.costPrice}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, costPrice: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Satış TL</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.priceTl}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, priceTl: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Satış USD</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.priceUsd}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, priceUsd: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-slate-400">
+                Stok miktarı depo transferi ve satış/alış/iade ile değişir.
+              </p>
+            </div>
+            <div className="border-t border-slate-100 bg-slate-50 px-5 py-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditing(null)}
+                className="rounded-lg px-4 py-2 text-sm text-slate-600"
+              >
+                İptal
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {submitting ? 'Kaydediliyor...' : 'Kaydet'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

@@ -168,6 +168,7 @@ export type Product = {
   sku: string;
   barcode: string | null;
   name: string;
+  costPrice: number;
   priceTl: number;
   priceUsd: number;
   stocks: ProductStock[];

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Search, Users } from 'lucide-react';
+import { Pencil, Plus, Search, Users, X } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
 import {
   API_BASE,
@@ -12,13 +12,54 @@ import {
   type PaginatedListResponse,
 } from '../lib/api';
 
-export default function CustomerList() {
+type CustomerForm = {
+  code: string;
+  name: string;
+  phone: string;
+  email: string;
+  city: string;
+  district: string;
+  address: string;
+  contactPerson: string;
+  taxOffice: string;
+  taxNumber: string;
+  creditLimit: string;
+};
+
+const emptyForm = (): CustomerForm => ({
+  code: '',
+  name: '',
+  phone: '',
+  email: '',
+  city: '',
+  district: '',
+  address: '',
+  contactPerson: '',
+  taxOffice: '',
+  taxNumber: '',
+  creditLimit: '0',
+});
+
+type CustomerListProps = {
+  onNotify?: (type: 'success' | 'error', message: string) => void;
+};
+
+export default function CustomerList({ onNotify }: CustomerListProps = {}) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<Customer | null>(null);
+  const [form, setForm] = useState<CustomerForm>(emptyForm());
+  const [submitting, setSubmitting] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const notify = useCallback(
+    (type: 'success' | 'error', message: string) => onNotify?.(type, message),
+    [onNotify]
+  );
 
   const loadCustomers = useCallback(async (query: string, pageNumber: number) => {
     setLoading(true);
@@ -27,9 +68,7 @@ export default function CustomerList() {
         page: pageNumber,
         limit: LIST_PAGE_SIZE,
       };
-      if (query.trim()) {
-        params.search = query.trim();
-      }
+      if (query.trim()) params.search = query.trim();
 
       const response = await axios.get<PaginatedListResponse<Customer>>(
         `${API_BASE}/api/customers`,
@@ -55,17 +94,94 @@ export default function CustomerList() {
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    debounceRef.current = setTimeout(() => {
-      loadCustomers(search, page);
-    }, 300);
-
+    debounceRef.current = setTimeout(() => loadCustomers(search, page), 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [search, page, loadCustomers]);
 
-  const totalPages = getTotalPages(totalCount, LIST_PAGE_SIZE);
+  const resetForm = () => {
+    setForm(emptyForm());
+    setEditing(null);
+    setShowForm(false);
+  };
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm(emptyForm());
+    setShowForm(true);
+  };
+
+  const openEdit = async (customer: Customer) => {
+    try {
+      const res = await axios.get<{ success: boolean; data: Customer & CustomerForm }>(
+        `${API_BASE}/api/customers/${customer.id}`
+      );
+      const data = res.data.data;
+      setEditing(customer);
+      setForm({
+        code: data.code,
+        name: data.name,
+        phone: (data as { phone?: string }).phone ?? '',
+        email: (data as { email?: string }).email ?? '',
+        city: (data as { city?: string }).city ?? '',
+        district: (data as { district?: string }).district ?? '',
+        address: (data as { address?: string }).address ?? '',
+        contactPerson: (data as { contactPerson?: string }).contactPerson ?? '',
+        taxOffice: (data as { taxOffice?: string }).taxOffice ?? '',
+        taxNumber: (data as { taxNumber?: string }).taxNumber ?? '',
+        creditLimit: String(data.creditLimit ?? 0),
+      });
+      setShowForm(true);
+    } catch {
+      notify('error', 'Müşteri bilgisi yüklenemedi.');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name.trim()) {
+      notify('error', 'Ünvan zorunludur.');
+      return;
+    }
+
+    setSubmitting(true);
+    const payload = {
+      code: form.code.trim() || undefined,
+      name: form.name.trim(),
+      phone: form.phone.trim() || undefined,
+      email: form.email.trim() || undefined,
+      city: form.city.trim() || undefined,
+      district: form.district.trim() || undefined,
+      address: form.address.trim() || undefined,
+      contactPerson: form.contactPerson.trim() || undefined,
+      taxOffice: form.taxOffice.trim() || undefined,
+      taxNumber: form.taxNumber.trim() || undefined,
+      creditLimit: Number(form.creditLimit) || 0,
+    };
+
+    try {
+      if (editing) {
+        await axios.put(`${API_BASE}/api/customers/${editing.id}`, payload);
+        notify('success', 'Müşteri güncellendi.');
+      } else {
+        await axios.post(`${API_BASE}/api/customers`, payload);
+        notify('success', 'Müşteri eklendi.');
+      }
+      resetForm();
+      await loadCustomers(search, page);
+    } catch (error) {
+      const message =
+        axios.isAxiosError(error) && error.response?.data?.message
+          ? String(error.response.data.message)
+          : editing
+            ? 'Güncelleme başarısız.'
+            : 'Müşteri eklenemedi.';
+      notify('error', message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -77,31 +193,36 @@ export default function CustomerList() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">Müşteri Listesi</h1>
             <p className="text-sm text-slate-500">
-              Gelişmiş sayfalama — {LIST_PAGE_SIZE} kayıt / sayfa
-              {totalPages > 0 && ` · ${totalPages.toLocaleString('tr-TR')} sayfa`}
+              Düzenlenebilir cari kartlar · {LIST_PAGE_SIZE} kayıt / sayfa
+              {getTotalPages(totalCount, LIST_PAGE_SIZE) > 0 &&
+                ` · ${getTotalPages(totalCount, LIST_PAGE_SIZE).toLocaleString('tr-TR')} sayfa`}
             </p>
           </div>
         </div>
 
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="İsim veya kod ile ara..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:ring-sky-500 shadow-sm"
-          />
+        <div className="flex w-full sm:w-auto gap-2">
+          <div className="relative flex-1 sm:w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="İsim veya kod ile ara..."
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-sky-500 focus:ring-sky-500 shadow-sm"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={openCreate}
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-500"
+          >
+            <Plus className="w-4 h-4" />
+            Yeni
+          </button>
         </div>
       </div>
 
       <section className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-800">Kayıtlı Müşteriler</h2>
-          <span className="text-xs text-slate-400">
-            {loading ? 'Yükleniyor...' : `${totalCount.toLocaleString('tr-TR')} kayıt`}
-          </span>
-        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-100">
             <thead className="bg-slate-50/80">
@@ -121,15 +242,13 @@ export default function CustomerList() {
                 <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase">
                   Durum
                 </th>
+                <th className="px-4 py-3 w-12" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading && (
                 <tr>
-                  <td
-                    colSpan={5}
-                    className="px-4 py-12 text-center text-slate-400 text-sm"
-                  >
+                  <td colSpan={6} className="px-4 py-12 text-center text-slate-400 text-sm">
                     Yükleniyor...
                   </td>
                 </tr>
@@ -138,18 +257,11 @@ export default function CustomerList() {
                 customers.map((customer) => {
                   const styles = balanceStyles(customer.balance);
                   return (
-                    <tr
-                      key={customer.id}
-                      className={`hover:bg-slate-50/60 ${
-                        customer.balance > 0 ? 'bg-red-50/30' : ''
-                      }`}
-                    >
+                    <tr key={customer.id} className="hover:bg-slate-50/60">
                       <td className="px-4 py-3 text-sm font-semibold text-slate-900">
                         {customer.code}
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-800">
-                        {customer.name}
-                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-800">{customer.name}</td>
                       <td className="px-4 py-3 text-sm text-right text-slate-600">
                         {formatMoney(customer.creditLimit)}
                       </td>
@@ -167,19 +279,19 @@ export default function CustomerList() {
                           {styles.label}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(customer)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50"
+                          title="Düzenle"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
-              {!loading && customers.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="px-4 py-12 text-center text-slate-400 text-sm"
-                  >
-                    Aramanıza uygun müşteri bulunamadı.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
@@ -193,6 +305,117 @@ export default function CustomerList() {
           accent="sky"
         />
       </section>
+
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/60" onClick={resetForm} />
+          <form
+            onSubmit={handleSubmit}
+            className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl"
+          >
+            <div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-4">
+              <h3 className="font-semibold text-slate-900">
+                {editing ? 'Müşteri Düzenle' : 'Yeni Müşteri'}
+              </h3>
+              <button type="button" onClick={resetForm}>
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Kod</label>
+                  <input
+                    value={form.code}
+                    onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+                    placeholder="Otomatik"
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Kredi Limiti</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.creditLimit}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, creditLimit: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">Ünvan *</label>
+                <input
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Telefon</label>
+                  <input
+                    value={form.phone}
+                    onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">E-posta</label>
+                  <input
+                    value={form.email}
+                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">Yetkili</label>
+                <input
+                  value={form.contactPerson}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, contactPerson: e.target.value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">Adres</label>
+                <textarea
+                  rows={2}
+                  value={form.address}
+                  onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              {editing && (
+                <p className="text-xs text-slate-400">
+                  Bakiye yalnızca satış, iade ve tahsilat işlemleriyle değişir.
+                </p>
+              )}
+            </div>
+            <div className="sticky bottom-0 border-t border-slate-100 bg-slate-50 px-5 py-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={resetForm}
+                className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
+              >
+                İptal
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+              >
+                {submitting ? 'Kaydediliyor...' : 'Kaydet'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

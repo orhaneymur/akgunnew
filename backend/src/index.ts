@@ -15,6 +15,7 @@ type StoreItem = {
   unitPrice: number;
   discountPercent?: number;
   isChinaReturn?: boolean;
+  sourceInvoiceItemId?: number;
 };
 
 const app = Fastify({ logger: true });
@@ -222,6 +223,37 @@ async function incrementStock(
       data: { productId, branchId, quantity },
     });
   }
+}
+
+async function getReturnedQtyMap(
+  sourceItemIds: number[]
+): Promise<Map<number, number>> {
+  if (sourceItemIds.length === 0) return new Map();
+
+  const grouped = await prisma.invoiceItem.groupBy({
+    by: ['sourceInvoiceItemId'],
+    where: { sourceInvoiceItemId: { in: sourceItemIds } },
+    _sum: { quantity: true },
+  });
+
+  const map = new Map<number, number>();
+  for (const row of grouped) {
+    if (row.sourceInvoiceItemId != null) {
+      map.set(row.sourceInvoiceItemId, row._sum.quantity ?? 0);
+    }
+  }
+  return map;
+}
+
+async function enrichInvoiceItemsWithReturnable<
+  T extends { id: number; quantity: number },
+>(items: T[]) {
+  const returnedMap = await getReturnedQtyMap(items.map((item) => item.id));
+  return items.map((item) => {
+    const returnedQty = returnedMap.get(item.id) ?? 0;
+    const returnableQty = Math.max(0, item.quantity - returnedQty);
+    return { ...item, returnedQty, returnableQty };
+  });
 }
 
 function normalizeSearchTerm(search: string): string {
@@ -812,17 +844,26 @@ app.get('/api/reports/analytics', async () => {
   };
 });
 
-app.get<{ Querystring: { type?: string } }>(
+app.get<{ Querystring: { type?: string; customerId?: string } }>(
   '/api/sales/invoices',
   async (request) => {
-    const { type } = request.query;
+    const { type, customerId } = request.query;
 
-    const where: Prisma.InvoiceWhereInput =
-      type && type !== 'ALL' ? { type } : {};
+    const where: Prisma.InvoiceWhereInput = {};
+    if (type && type !== 'ALL') {
+      where.type = type;
+    }
+    if (customerId) {
+      const parsedCustomerId = Number(customerId);
+      if (Number.isFinite(parsedCustomerId) && parsedCustomerId > 0) {
+        where.customerId = parsedCustomerId;
+      }
+    }
 
     const invoices = await prisma.invoice.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      take: customerId ? 100 : undefined,
       include: {
         customer: { select: { id: true, code: true, name: true } },
         user: { select: { id: true, name: true } },
@@ -838,9 +879,141 @@ app.get<{ Querystring: { type?: string } }>(
   }
 );
 
+app.get<{ Params: { id: string } }>('/api/sales/invoices/:id', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Geçersiz fatura id.',
+      errors: null,
+    });
+  }
+
+  const invoice = await prisma.invoice.findUnique({
+    where: { id },
+    include: {
+      customer: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          balance: true,
+        },
+      },
+      user: { select: { id: true, name: true } },
+      branch: { select: { id: true, name: true } },
+      safe: { select: { id: true, name: true } },
+      originalInvoice: { select: { id: true, invoiceNo: true, type: true } },
+      items: {
+        include: {
+          product: {
+            select: {
+              id: true,
+              sku: true,
+              barcode: true,
+              name: true,
+              priceTl: true,
+              priceUsd: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!invoice) {
+    return reply.status(404).send({
+      success: false,
+      message: 'Fatura bulunamadı.',
+      errors: null,
+    });
+  }
+
+  const items = await enrichInvoiceItemsWithReturnable(invoice.items);
+
+  return {
+    success: true,
+    data: { ...invoice, items },
+    message: 'Invoice detail retrieved successfully.',
+  };
+});
+
+app.put<{
+  Params: { id: string };
+  Body: {
+    paymentMethod?: string;
+    paymentType?: string;
+    processedBy?: string;
+    orderNotes?: string;
+    deliveryType?: string;
+    shippingCompany?: string;
+    trackingNumber?: string;
+    dueDate?: string | null;
+  };
+}>('/api/sales/invoices/:id', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Geçersiz fatura id.',
+      errors: null,
+    });
+  }
+
+  const existing = await prisma.invoice.findUnique({ where: { id } });
+  if (!existing) {
+    return reply.status(404).send({
+      success: false,
+      message: 'Fatura bulunamadı.',
+      errors: null,
+    });
+  }
+
+  const {
+    paymentMethod,
+    paymentType,
+    processedBy,
+    orderNotes,
+    deliveryType,
+    shippingCompany,
+    trackingNumber,
+    dueDate,
+  } = request.body ?? {};
+
+  const updated = await prisma.invoice.update({
+    where: { id },
+    data: {
+      ...(paymentMethod !== undefined ? { paymentMethod } : {}),
+      ...(paymentType !== undefined ? { paymentType } : {}),
+      ...(processedBy !== undefined ? { processedBy } : {}),
+      ...(orderNotes !== undefined ? { orderNotes } : {}),
+      ...(deliveryType !== undefined ? { deliveryType } : {}),
+      ...(shippingCompany !== undefined ? { shippingCompany } : {}),
+      ...(trackingNumber !== undefined ? { trackingNumber } : {}),
+      ...(dueDate !== undefined
+        ? { dueDate: dueDate ? new Date(dueDate) : null }
+        : {}),
+    },
+    include: {
+      customer: { select: { id: true, code: true, name: true } },
+      branch: { select: { id: true, name: true } },
+      user: { select: { id: true, name: true } },
+    },
+  });
+
+  return {
+    success: true,
+    data: updated,
+    message: 'Fatura güncellendi.',
+  };
+});
+
 app.get('/api/sales/init', async () => {
   const [branches, safes, personnels, nextInvoiceNo] = await Promise.all([
-    prisma.branch.findMany({ orderBy: { name: 'asc' } }),
+    prisma.branch.findMany({
+      where: { type: 'STORE' },
+      orderBy: { name: 'asc' },
+    }),
     prisma.safe.findMany({
       include: { branch: { select: { id: true, name: true, type: true } } },
       orderBy: { name: 'asc' },
@@ -861,7 +1034,10 @@ app.get('/api/sales/init', async () => {
 
 app.get('/api/purchases/init', async () => {
   const [branches, safes, personnels, nextInvoiceNo] = await Promise.all([
-    prisma.branch.findMany({ orderBy: { name: 'asc' } }),
+    prisma.branch.findMany({
+      where: { type: 'STORE' },
+      orderBy: { name: 'asc' },
+    }),
     prisma.safe.findMany({
       include: { branch: { select: { id: true, name: true, type: true } } },
       orderBy: { name: 'asc' },
@@ -1049,6 +1225,199 @@ app.get<{ Querystring: { search?: string; page?: string; limit?: string; take?: 
     };
   }
 );
+
+app.get<{ Params: { id: string } }>('/api/customers/:id', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Geçersiz müşteri id.',
+      errors: null,
+    });
+  }
+
+  const customer = await prisma.customer.findUnique({ where: { id } });
+  if (!customer) {
+    return reply.status(404).send({
+      success: false,
+      message: 'Müşteri bulunamadı.',
+      errors: null,
+    });
+  }
+
+  return {
+    success: true,
+    data: customer,
+    message: 'Customer retrieved successfully.',
+  };
+});
+
+app.post<{
+  Body: {
+    code?: string;
+    name: string;
+    contactPerson?: string;
+    address?: string;
+    district?: string;
+    city?: string;
+    email?: string;
+    phone?: string;
+    taxOffice?: string;
+    taxNumber?: string;
+    creditLimit?: number;
+  };
+}>('/api/customers', async (request, reply) => {
+  const {
+    code,
+    name,
+    contactPerson,
+    address,
+    district,
+    city,
+    email,
+    phone,
+    taxOffice,
+    taxNumber,
+    creditLimit,
+  } = request.body ?? {};
+
+  const trimmedName = name?.trim();
+  if (!trimmedName) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Müşteri adı zorunludur.',
+      errors: null,
+    });
+  }
+
+  const customerCode =
+    code?.trim() ||
+    `M${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 90 + 10)}`;
+
+  try {
+    const customer = await prisma.customer.create({
+      data: {
+        code: customerCode,
+        name: trimmedName,
+        contactPerson: contactPerson?.trim() || null,
+        address: address?.trim() || null,
+        district: district?.trim() || null,
+        city: city?.trim() || null,
+        email: email?.trim() || null,
+        phone: phone?.trim() || null,
+        taxOffice: taxOffice?.trim() || null,
+        taxNumber: taxNumber?.trim() || null,
+        creditLimit: creditLimit ?? 0,
+      },
+    });
+
+    return reply.status(201).send({
+      success: true,
+      data: customer,
+      message: 'Müşteri oluşturuldu.',
+    });
+  } catch {
+    return reply.status(409).send({
+      success: false,
+      message: 'Müşteri eklenemedi. Kod benzersiz olmalı.',
+      errors: null,
+    });
+  }
+});
+
+app.put<{
+  Params: { id: string };
+  Body: {
+    code?: string;
+    name?: string;
+    contactPerson?: string;
+    address?: string;
+    district?: string;
+    city?: string;
+    email?: string;
+    phone?: string;
+    taxOffice?: string;
+    taxNumber?: string;
+    creditLimit?: number;
+  };
+}>('/api/customers/:id', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Geçersiz müşteri id.',
+      errors: null,
+    });
+  }
+
+  const existing = await prisma.customer.findUnique({ where: { id } });
+  if (!existing) {
+    return reply.status(404).send({
+      success: false,
+      message: 'Müşteri bulunamadı.',
+      errors: null,
+    });
+  }
+
+  const {
+    code,
+    name,
+    contactPerson,
+    address,
+    district,
+    city,
+    email,
+    phone,
+    taxOffice,
+    taxNumber,
+    creditLimit,
+  } = request.body ?? {};
+
+  if (name !== undefined && !name.trim()) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Müşteri adı boş olamaz.',
+      errors: null,
+    });
+  }
+
+  try {
+    const customer = await prisma.customer.update({
+      where: { id },
+      data: {
+        ...(code !== undefined ? { code: code.trim() } : {}),
+        ...(name !== undefined ? { name: name.trim() } : {}),
+        ...(contactPerson !== undefined
+          ? { contactPerson: contactPerson.trim() || null }
+          : {}),
+        ...(address !== undefined ? { address: address.trim() || null } : {}),
+        ...(district !== undefined ? { district: district.trim() || null } : {}),
+        ...(city !== undefined ? { city: city.trim() || null } : {}),
+        ...(email !== undefined ? { email: email.trim() || null } : {}),
+        ...(phone !== undefined ? { phone: phone.trim() || null } : {}),
+        ...(taxOffice !== undefined
+          ? { taxOffice: taxOffice.trim() || null }
+          : {}),
+        ...(taxNumber !== undefined
+          ? { taxNumber: taxNumber.trim() || null }
+          : {}),
+        ...(creditLimit !== undefined ? { creditLimit } : {}),
+      },
+    });
+
+    return {
+      success: true,
+      data: customer,
+      message: 'Müşteri güncellendi.',
+    };
+  } catch {
+    return reply.status(409).send({
+      success: false,
+      message: 'Güncelleme başarısız. Kod benzersiz olmalı.',
+      errors: null,
+    });
+  }
+});
 
 app.post<{
   Body: {
@@ -1445,31 +1814,99 @@ app.post<{
     branchId: number;
     safeId: number;
     exchangeRate?: number;
+    originalInvoiceId: number;
     /** @deprecated Satır bazlı isChinaReturn kullanın */
     isDefective?: boolean;
     items: StoreItem[];
   };
 }>('/api/sales/return', async (request, reply) => {
-  const { customerId, branchId, safeId, exchangeRate, isDefective, items } =
-    request.body;
+  const {
+    customerId,
+    branchId,
+    safeId,
+    exchangeRate,
+    originalInvoiceId,
+    isDefective,
+    items,
+  } = request.body;
 
-  if (!customerId || !branchId || !safeId || !items?.length) {
+  if (
+    !customerId ||
+    !branchId ||
+    !safeId ||
+    !originalInvoiceId ||
+    !items?.length
+  ) {
     return reply.status(400).send({
       success: false,
-      message: 'Eksik veya geçersiz iade bilgileri.',
+      message: 'Müşteri, şube, kasa, kaynak fatura ve iade kalemleri zorunludur.',
       errors: null,
     });
   }
 
-  const totalAmountTl = items.reduce(
-    (sum, item) => sum + item.quantity * item.unitPrice,
-    0
-  );
-  const rate = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
-  const totalAmountUsd = totalAmountTl / rate;
-
   try {
     const invoice = await prisma.$transaction(async (tx) => {
+      const sourceInvoice = await tx.invoice.findUnique({
+        where: { id: originalInvoiceId },
+        include: { items: true },
+      });
+
+      if (!sourceInvoice || sourceInvoice.type !== 'SATIS') {
+        throw new Error('Kaynak satış faturası bulunamadı.');
+      }
+
+      if (sourceInvoice.customerId !== customerId) {
+        throw new Error('Seçilen fatura bu müşteriye ait değil.');
+      }
+
+      const sourceItemMap = new Map(
+        sourceInvoice.items.map((line) => [line.id, line])
+      );
+      const returnedMap = await getReturnedQtyMap(
+        sourceInvoice.items.map((line) => line.id)
+      );
+
+      const normalizedItems: StoreItem[] = [];
+
+      for (const item of items) {
+        if (!item.sourceInvoiceItemId || item.quantity <= 0) {
+          throw new Error('Her iade satırı için geçerli miktar ve fatura kalemi seçin.');
+        }
+
+        const sourceLine = sourceItemMap.get(item.sourceInvoiceItemId);
+        if (!sourceLine) {
+          throw new Error('İade kalemi kaynak faturada bulunamadı.');
+        }
+
+        const alreadyReturned = returnedMap.get(sourceLine.id) ?? 0;
+        const returnableQty = sourceLine.quantity - alreadyReturned;
+        if (item.quantity > returnableQty) {
+          throw new Error(
+            `${sourceLine.id} numaralı satır için en fazla ${returnableQty} adet iade alınabilir.`
+          );
+        }
+
+        normalizedItems.push({
+          productId: sourceLine.productId,
+          quantity: item.quantity,
+          unitPrice: sourceLine.unitPrice,
+          isChinaReturn: item.isChinaReturn ?? isDefective ?? false,
+          sourceInvoiceItemId: sourceLine.id,
+        });
+      }
+
+      const totalAmountTl = normalizedItems.reduce(
+        (sum, item) => sum + item.quantity * item.unitPrice,
+        0
+      );
+      const rate =
+        exchangeRate && exchangeRate > 0
+          ? exchangeRate
+          : sourceInvoice.exchangeRate > 0
+            ? sourceInvoice.exchangeRate
+            : 1;
+      const totalAmountUsd = totalAmountTl / rate;
+
       const invoiceNo = await generateReturnInvoiceNo(tx);
       const merkezDepoId = await getDepotBranchId(tx, 'MERKEZ');
       const cinIadeDepoId = await getDepotBranchId(tx, 'CIN_IADE');
@@ -1486,20 +1923,23 @@ app.post<{
           deliveryType: 'Mağazadan Teslim',
           totalAmountTl,
           totalAmountUsd,
+          originalInvoiceId: sourceInvoice.id,
+          orderNotes: `Kaynak fatura: ${sourceInvoice.invoiceNo}`,
           items: {
-            create: items.map((item) => ({
+            create: normalizedItems.map((item) => ({
               productId: item.productId,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               totalPrice: item.quantity * item.unitPrice,
+              sourceInvoiceItemId: item.sourceInvoiceItemId,
             })),
           },
         },
         include: { items: true },
       });
 
-      for (const item of items) {
-        const toChinaReturn = item.isChinaReturn ?? isDefective ?? false;
+      for (const item of normalizedItems) {
+        const toChinaReturn = item.isChinaReturn ?? false;
         const stockBranchId = toChinaReturn ? cinIadeDepoId : merkezDepoId;
         await incrementStock(
           tx,
@@ -1648,6 +2088,129 @@ app.get<{ Querystring: { search?: string; page?: string; limit?: string; take?: 
     };
   }
 );
+
+app.get<{ Params: { id: string } }>('/api/products/:id', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Geçersiz ürün id.',
+      errors: null,
+    });
+  }
+
+  const product = await prisma.product.findUnique({
+    where: { id },
+    include: {
+      stocks: {
+        include: {
+          branch: { select: { id: true, name: true, type: true } },
+        },
+      },
+    },
+  });
+
+  if (!product) {
+    return reply.status(404).send({
+      success: false,
+      message: 'Ürün bulunamadı.',
+      errors: null,
+    });
+  }
+
+  return {
+    success: true,
+    data: product,
+    message: 'Product retrieved successfully.',
+  };
+});
+
+app.put<{
+  Params: { id: string };
+  Body: {
+    sku?: string;
+    name?: string;
+    barcode?: string | null;
+    costPrice?: number;
+    priceTl?: number;
+    priceUsd?: number;
+  };
+}>('/api/products/:id', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Geçersiz ürün id.',
+      errors: null,
+    });
+  }
+
+  const existing = await prisma.product.findUnique({ where: { id } });
+  if (!existing) {
+    return reply.status(404).send({
+      success: false,
+      message: 'Ürün bulunamadı.',
+      errors: null,
+    });
+  }
+
+  const { sku, name, barcode, costPrice, priceTl, priceUsd } = request.body ?? {};
+
+  if (name !== undefined && !name.trim()) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Ürün adı boş olamaz.',
+      errors: null,
+    });
+  }
+
+  if (
+    (costPrice !== undefined && costPrice < 0) ||
+    (priceTl !== undefined && priceTl < 0) ||
+    (priceUsd !== undefined && priceUsd < 0)
+  ) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Fiyatlar negatif olamaz.',
+      errors: null,
+    });
+  }
+
+  try {
+    const product = await prisma.product.update({
+      where: { id },
+      data: {
+        ...(sku !== undefined ? { sku: sku.trim() } : {}),
+        ...(name !== undefined ? { name: name.trim() } : {}),
+        ...(barcode !== undefined
+          ? { barcode: barcode?.trim() || null }
+          : {}),
+        ...(costPrice !== undefined ? { costPrice } : {}),
+        ...(priceTl !== undefined ? { priceTl } : {}),
+        ...(priceUsd !== undefined ? { priceUsd } : {}),
+      },
+      include: {
+        stocks: {
+          include: {
+            branch: { select: { id: true, name: true, type: true } },
+          },
+        },
+      },
+    });
+
+    return {
+      success: true,
+      data: product,
+      message: 'Ürün güncellendi.',
+    };
+  } catch {
+    return reply.status(409).send({
+      success: false,
+      message: 'Güncelleme başarısız. SKU veya barkod benzersiz olmalı.',
+      errors: null,
+    });
+  }
+});
 
 app.post<{
   Body: {

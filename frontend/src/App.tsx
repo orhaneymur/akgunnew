@@ -203,11 +203,12 @@ function App() {
             key={invoiceFilter}
             initialFilter={invoiceFilter}
             title="Fatura Listesi"
-            description="Satış, alış ve iade faturaları — filtreli görünüm"
+            description="Satış, alış ve iade faturaları — görüntüle ve düzenle"
+            onNotify={showNotification}
           />
         );
       case 'stock-list':
-        return <StockList />;
+        return <StockList onNotify={showNotification} />;
       case 'stock-transfer':
         return (
           <StockTransfer
@@ -220,7 +221,7 @@ function App() {
       case 'barcode-label':
         return <BarcodePrint />;
       case 'customer-list':
-        return <CustomerList />;
+        return <CustomerList onNotify={showNotification} />;
       case 'customer-payments':
         return (
           <CustomerPayment
