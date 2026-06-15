@@ -76,7 +76,7 @@ type SalesCreateProps = {
 
 function calcLineTotalTl(item: Pick<CartItem, 'quantity' | 'unitPriceTl' | 'discountPercent'>) {
   const base = item.quantity * item.unitPriceTl;
-  return base * (1 - item.discountPercent / 100);
+  return Math.round(base * (1 - item.discountPercent / 100) * 100) / 100;
 }
 
 function pickCustomerFromSearch(query: string, results: Customer[]): Customer | null {
@@ -165,7 +165,8 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
   );
 
   const totalTl = useMemo(
-    () => cart.reduce((sum, item) => sum + calcLineTotalTl(item), 0),
+    () =>
+      Math.round(cart.reduce((sum, item) => sum + calcLineTotalTl(item), 0) * 100) / 100,
     [cart]
   );
 
@@ -471,7 +472,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
         safeId,
         paymentMethod,
         paymentType,
-        exchangeRate,
+        exchangeRate: Number(exchangeRate),
         deliveryType,
         dueDate: dueDate || undefined,
         invoiceDate,
@@ -492,7 +493,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
           'success',
           `${isPreOrder ? 'Ön sipariş' : 'Satış'} kaydedildi! Fatura: ${response.data.data?.invoiceNo ?? ''}${
             savedCustomer ? ` · ${savedCustomer.name}` : ''
-          }`
+          }${response.data.data?.totalAmountTl != null ? ` · ${formatMoney(response.data.data.totalAmountTl)}` : ''}`
         );
         setCart([]);
         setOrderNotes('');

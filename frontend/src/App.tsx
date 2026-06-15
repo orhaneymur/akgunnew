@@ -232,7 +232,8 @@ function App() {
       case 'invoices':
         return (
           <Invoices
-            key={`${invoiceFilter}-${preOrderOnly}`}
+            key={`${invoiceFilter}-${preOrderOnly}-${dashboardRefreshKey}`}
+            refreshKey={dashboardRefreshKey}
             initialFilter={invoiceFilter}
             preOrderOnly={preOrderOnly}
             title={preOrderOnly ? 'Ön Siparişler' : 'Fatura Listesi'}
@@ -247,6 +248,8 @@ function App() {
       case 'pre-orders':
         return (
           <Invoices
+            key={`pre-orders-${dashboardRefreshKey}`}
+            refreshKey={dashboardRefreshKey}
             preOrderOnly
             initialFilter="SATIS"
             title="Ön Siparişler"

@@ -49,6 +49,7 @@ type FilterType = 'ALL' | InvoiceType;
 type InvoicesProps = {
   initialFilter?: FilterType;
   preOrderOnly?: boolean;
+  refreshKey?: number;
   title?: string;
   description?: string;
   onNotify?: (type: 'success' | 'error', message: string) => void;
@@ -57,6 +58,7 @@ type InvoicesProps = {
 export default function Invoices({
   initialFilter = 'ALL',
   preOrderOnly = false,
+  refreshKey = 0,
   title = 'Fatura Listesi',
   description = 'Satış, alış ve iade faturaları — görüntüle ve düzenle',
   onNotify,
@@ -112,7 +114,7 @@ export default function Invoices({
     } finally {
       setLoading(false);
     }
-  }, [filter, preOrderOnly, appliedCustomerSearch, appliedProductSearch, notify]);
+  }, [filter, preOrderOnly, appliedCustomerSearch, appliedProductSearch, notify, refreshKey]);
 
   useEffect(() => {
     setFilter(initialFilter);

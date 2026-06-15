@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: since1907/akgun-backend:v1.7.5
+          image: since1907/akgun-backend:v1.7.6
           imagePullPolicy: Always
           ports:
             - name: http
@@ -31,6 +31,8 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+            - name: TZ
+              value: Europe/Istanbul
             - name: PORT
               value: "3000"
             - name: DATABASE_URL

@@ -15,6 +15,7 @@ import {
   importInvoicesExcel,
   importProductsExcel,
 } from './utils/excelExchange.js';
+import { buildInvoiceCreatedAt, roundMoney } from './utils/datetime.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -124,18 +125,18 @@ function calcLineTotalUsd(item: StoreItem): number {
 }
 
 function calcLineTotalTl(item: StoreItem): number {
-  const discount = item.discountPercent ?? 0;
-  const base = item.quantity * item.unitPrice;
-  return base * (1 - discount / 100);
+  const discount = Number(item.discountPercent) || 0;
+  const base = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+  return roundMoney(base * (1 - discount / 100));
 }
 
-function parseInvoiceDateTime(dateStr?: string): Date | undefined {
-  if (!dateStr?.trim()) return undefined;
-  const parts = dateStr.trim().split('-').map(Number);
-  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return undefined;
-  const [year, month, day] = parts;
-  const now = new Date();
-  return new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds());
+function normalizeStoreItem(item: StoreItem): StoreItem {
+  return {
+    productId: Number(item.productId),
+    quantity: Number(item.quantity) || 0,
+    unitPrice: Number(item.unitPrice) || 0,
+    discountPercent: Number(item.discountPercent) || 0,
+  };
 }
 
 function isCashLikePayment(method: string): boolean {
@@ -2074,13 +2075,13 @@ app.post<{
     });
   }
 
-  const rate = exchangeRate > 0 ? exchangeRate : 1;
-  const totalAmountTl = items.reduce(
-    (sum, item) => sum + calcLineTotalTl(item),
-    0
+  const rate = exchangeRate > 0 ? Number(exchangeRate) : 1;
+  const normalizedItems = items.map(normalizeStoreItem);
+  const totalAmountTl = roundMoney(
+    normalizedItems.reduce((sum, item) => sum + calcLineTotalTl(item), 0)
   );
-  const totalAmountUsd = totalAmountTl / rate;
-  const invoiceCreatedAt = parseInvoiceDateTime(invoiceDate);
+  const totalAmountUsd = roundMoney(totalAmountTl / rate);
+  const invoiceCreatedAt = buildInvoiceCreatedAt(invoiceDate);
 
   try {
     const invoice = await prisma.$transaction(async (tx) => {
@@ -2108,14 +2109,14 @@ app.post<{
           orderNotes: orderNotes ?? null,
           totalAmountTl,
           totalAmountUsd,
-          ...(invoiceCreatedAt ? { createdAt: invoiceCreatedAt } : {}),
+          createdAt: invoiceCreatedAt,
           items: {
-            create: items.map((item) => {
+            create: normalizedItems.map((item) => {
               const lineTotal = calcLineTotalTl(item);
               return {
                 productId: item.productId,
                 quantity: item.quantity,
-                unitPrice: item.unitPrice,
+                unitPrice: roundMoney(item.unitPrice),
                 discountPercent: item.discountPercent ?? 0,
                 totalPrice: lineTotal,
               };
@@ -2131,7 +2132,7 @@ app.post<{
       if (!isPreOrder) {
         const stockBranchId = await getDepotBranchId(tx, 'MERKEZ');
 
-        for (const item of items) {
+        for (const item of normalizedItems) {
           const stock = await tx.productStock.findUnique({
             where: {
               productId_branchId: {
