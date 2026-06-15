@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Eye, FileText, Filter, Package, Pencil, Save, Search, User, X } from 'lucide-react';
+import { CheckCircle, Eye, FileText, Filter, Package, Pencil, Save, Search, User, X } from 'lucide-react';
 import {
   API_BASE,
+  ensureArray,
   formatDate,
   formatMoney,
   invoiceTypeLabel,
   invoiceTypeStyles,
+  type Customer,
   type InvoiceType,
+  type PaginatedListResponse,
 } from '../lib/api';
 import ExcelActions from '../components/ExcelActions';
 
@@ -21,12 +24,17 @@ type Invoice = {
   processedBy: string | null;
   orderNotes: string | null;
   deliveryType: string;
+  shippingCompany?: string | null;
+  trackingNumber?: string | null;
+  dueDate?: string | null;
+  exchangeRate?: number;
   totalAmountTl: number;
   totalAmountUsd: number;
   createdAt: string;
   customer: { id: number; code: string; name: string };
   user: { id: number; name: string } | null;
   branch: { id: number; name: string };
+  safe?: { id: number; name: string } | null;
   originalInvoice?: { id: number; invoiceNo: string; type: string } | null;
 };
 
@@ -34,9 +42,18 @@ type InvoiceLine = {
   id: number;
   quantity: number;
   unitPrice: number;
+  discountPercent?: number;
   totalPrice: number;
   returnedQty?: number;
   returnableQty?: number;
+  product: { sku: string; name: string };
+};
+
+type EditableLine = {
+  id: number;
+  quantity: string;
+  unitPrice: string;
+  discountPercent: string;
   product: { sku: string; name: string };
 };
 
@@ -76,10 +93,25 @@ export default function Invoices({
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     paymentMethod: '',
+    paymentType: '',
     processedBy: '',
     orderNotes: '',
     deliveryType: '',
+    shippingCompany: '',
+    trackingNumber: '',
+    dueDate: '',
+    invoiceDate: '',
+    exchangeRate: '',
+    isPreOrder: false,
+    customerSearch: '',
+    items: [] as EditableLine[],
   });
+  const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+  const [fulfilling, setFulfilling] = useState(false);
+  const customerDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const notify = useCallback(
     (type: 'success' | 'error', message: string) => onNotify?.(type, message),
@@ -138,6 +170,37 @@ export default function Invoices({
 
   const hasActiveSearch = Boolean(appliedCustomerSearch.trim() || appliedProductSearch.trim());
 
+  useEffect(() => {
+    if (!editing) return;
+    const query = form.customerSearch.trim();
+    if (!customerDropdownOpen || query.length < 1) {
+      setCustomerResults([]);
+      return;
+    }
+
+    if (customerDebounceRef.current) clearTimeout(customerDebounceRef.current);
+    customerDebounceRef.current = setTimeout(async () => {
+      setCustomerSearchLoading(true);
+      try {
+        const response = await axios.get<PaginatedListResponse<Customer>>(
+          `${API_BASE}/api/customers`,
+          { params: { search: query, limit: 20, page: 1 } }
+        );
+        if (response.data.success) {
+          setCustomerResults(ensureArray(response.data.data));
+        }
+      } catch {
+        setCustomerResults([]);
+      } finally {
+        setCustomerSearchLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      if (customerDebounceRef.current) clearTimeout(customerDebounceRef.current);
+    };
+  }, [form.customerSearch, customerDropdownOpen, editing]);
+
   const openDetail = async (inv: Invoice) => {
     setDetailLoading(true);
     setEditing(false);
@@ -148,11 +211,27 @@ export default function Invoices({
       if (res.data.success) {
         const data = res.data.data;
         setDetail(data);
+        setSelectedCustomer(data.customer as Customer);
         setForm({
           paymentMethod: data.paymentMethod,
+          paymentType: data.paymentType ?? '',
           processedBy: data.processedBy ?? '',
           orderNotes: data.orderNotes ?? '',
           deliveryType: data.deliveryType,
+          shippingCompany: data.shippingCompany ?? '',
+          trackingNumber: data.trackingNumber ?? '',
+          dueDate: data.dueDate ? data.dueDate.slice(0, 10) : '',
+          invoiceDate: data.createdAt.slice(0, 10),
+          exchangeRate: String(data.exchangeRate ?? 1),
+          isPreOrder: Boolean(data.isPreOrder),
+          customerSearch: `${data.customer.code} — ${data.customer.name}`,
+          items: data.items.map((line) => ({
+            id: line.id,
+            quantity: String(line.quantity),
+            unitPrice: String(line.unitPrice),
+            discountPercent: String(line.discountPercent ?? 0),
+            product: line.product,
+          })),
         });
       }
     } catch {
@@ -169,19 +248,66 @@ export default function Invoices({
     try {
       await axios.put(`${API_BASE}/api/sales/invoices/${detail.id}`, {
         paymentMethod: form.paymentMethod,
+        paymentType: form.paymentType || null,
         processedBy: form.processedBy || null,
         orderNotes: form.orderNotes || null,
         deliveryType: form.deliveryType,
+        shippingCompany: form.shippingCompany || null,
+        trackingNumber: form.trackingNumber || null,
+        dueDate: form.dueDate || null,
+        invoiceDate: form.invoiceDate || null,
+        exchangeRate: Number(form.exchangeRate) || 1,
+        isPreOrder: form.isPreOrder,
+        customerId: selectedCustomer?.id,
+        items: form.items.map((line) => ({
+          id: line.id,
+          quantity: Number(line.quantity),
+          unitPrice: Number(line.unitPrice),
+          discountPercent: Number(line.discountPercent) || 0,
+        })),
       });
       notify('success', 'Fatura güncellendi.');
       setEditing(false);
       await loadInvoices();
       await openDetail(detail);
-    } catch {
-      notify('error', 'Güncelleme başarısız.');
+    } catch (error) {
+      const message =
+        axios.isAxiosError(error) && error.response?.data?.message
+          ? String(error.response.data.message)
+          : 'Güncelleme başarısız.';
+      notify('error', message);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleFulfill = async () => {
+    if (!detail) return;
+    setFulfilling(true);
+    try {
+      await axios.post(`${API_BASE}/api/sales/invoices/${detail.id}/fulfill`);
+      notify('success', 'Ön sipariş tamamlandı, stok düşüldü.');
+      await loadInvoices();
+      await openDetail(detail);
+    } catch (error) {
+      const message =
+        axios.isAxiosError(error) && error.response?.data?.message
+          ? String(error.response.data.message)
+          : 'Tamamlama başarısız.';
+      notify('error', message);
+    } finally {
+      setFulfilling(false);
+    }
+  };
+
+  const updateLine = (id: number, field: keyof EditableLine, value: string) => {
+    if (field === 'product') return;
+    setForm((prev) => ({
+      ...prev,
+      items: prev.items.map((line) =>
+        line.id === id ? { ...line, [field]: value } : line
+      ),
+    }));
   };
 
   const filters: { value: FilterType; label: string }[] = [
@@ -405,7 +531,7 @@ export default function Invoices({
             className="fixed inset-0 bg-slate-900/60"
             onClick={() => !detailLoading && setDetail(null)}
           />
-          <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl">
+          <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl">
             {detailLoading && !detail ? (
               <p className="p-8 text-center text-slate-400">Yükleniyor...</p>
             ) : detail ? (
@@ -418,6 +544,17 @@ export default function Invoices({
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {!editing && detail.isPreOrder && detail.type === 'SATIS' && (
+                      <button
+                        type="button"
+                        onClick={handleFulfill}
+                        disabled={fulfilling}
+                        className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-50"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        {fulfilling ? 'Tamamlanıyor...' : 'Stok Düş (Tamamla)'}
+                      </button>
+                    )}
                     {!editing && (
                       <button
                         type="button"
@@ -435,41 +572,157 @@ export default function Invoices({
                 </div>
 
                 {editing ? (
-                  <form onSubmit={handleSave} className="p-5 space-y-3">
-                    <div>
-                      <label className="text-xs font-medium text-slate-600">Ödeme</label>
-                      <input
-                        value={form.paymentMethod}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, paymentMethod: e.target.value }))
-                        }
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-slate-600">Personel</label>
-                      <input
-                        value={form.processedBy}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, processedBy: e.target.value }))
-                        }
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-slate-600">Teslimat</label>
-                      <input
-                        value={form.deliveryType}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, deliveryType: e.target.value }))
-                        }
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                      />
+                  <form onSubmit={handleSave} className="p-5 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="relative sm:col-span-2">
+                        <label className="text-xs font-medium text-slate-600">Müşteri</label>
+                        <input
+                          type="text"
+                          value={form.customerSearch}
+                          onChange={(e) => {
+                            setForm((f) => ({ ...f, customerSearch: e.target.value }));
+                            setCustomerDropdownOpen(true);
+                          }}
+                          onFocus={() => setCustomerDropdownOpen(true)}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                          autoComplete="off"
+                        />
+                        {customerDropdownOpen && form.customerSearch.trim() && (
+                          <ul className="absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white border rounded-lg shadow-lg divide-y">
+                            {customerSearchLoading && (
+                              <li className="px-3 py-2 text-xs text-slate-400">Aranıyor...</li>
+                            )}
+                            {!customerSearchLoading &&
+                              customerResults.map((customer) => (
+                                <li
+                                  key={customer.id}
+                                  onMouseDown={() => {
+                                    setSelectedCustomer(customer);
+                                    setForm((f) => ({
+                                      ...f,
+                                      customerSearch: `${customer.code} — ${customer.name}`,
+                                    }));
+                                    setCustomerDropdownOpen(false);
+                                  }}
+                                  className="px-3 py-2 text-sm cursor-pointer hover:bg-violet-50"
+                                >
+                                  {customer.code} — {customer.name}
+                                </li>
+                              ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Fatura Tarihi</label>
+                        <input
+                          type="date"
+                          value={form.invoiceDate}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, invoiceDate: e.target.value }))
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Vade Tarihi</label>
+                        <input
+                          type="date"
+                          value={form.dueDate}
+                          onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Ödeme</label>
+                        <input
+                          value={form.paymentMethod}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, paymentMethod: e.target.value }))
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Ödeme Tipi</label>
+                        <input
+                          value={form.paymentType}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, paymentType: e.target.value }))
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Döviz Kuru</label>
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={form.exchangeRate}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, exchangeRate: e.target.value }))
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Personel</label>
+                        <input
+                          value={form.processedBy}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, processedBy: e.target.value }))
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Teslimat</label>
+                        <input
+                          value={form.deliveryType}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, deliveryType: e.target.value }))
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Kargo Firması</label>
+                        <input
+                          value={form.shippingCompany}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, shippingCompany: e.target.value }))
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Takip No</label>
+                        <input
+                          value={form.trackingNumber}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, trackingNumber: e.target.value }))
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </div>
+                      {detail.type === 'SATIS' && (
+                        <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
+                          <input
+                            type="checkbox"
+                            checked={form.isPreOrder}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, isPreOrder: e.target.checked }))
+                            }
+                            className="rounded border-slate-300 text-violet-600"
+                          />
+                          Ön sipariş (stok düşümü yok)
+                        </label>
+                      )}
                     </div>
                     <div>
                       <label className="text-xs font-medium text-slate-600">Açıklama</label>
                       <textarea
-                        rows={3}
+                        rows={2}
                         value={form.orderNotes}
                         onChange={(e) =>
                           setForm((f) => ({ ...f, orderNotes: e.target.value }))
@@ -477,6 +730,62 @@ export default function Invoices({
                         className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                       />
                     </div>
+
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-slate-500 mb-2">
+                        Fatura Kalemleri
+                      </p>
+                      <div className="space-y-2">
+                        {form.items.map((line) => (
+                          <div
+                            key={line.id}
+                            className="rounded-lg border border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-4 gap-2"
+                          >
+                            <div className="sm:col-span-4">
+                              <p className="text-sm font-medium">{line.product.name}</p>
+                              <p className="text-xs text-slate-400">{line.product.sku}</p>
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-500">Adet</label>
+                              <input
+                                type="number"
+                                min="0.01"
+                                step="any"
+                                value={line.quantity}
+                                onChange={(e) => updateLine(line.id, 'quantity', e.target.value)}
+                                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-500">Birim Fiyat (TL)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={line.unitPrice}
+                                onChange={(e) => updateLine(line.id, 'unitPrice', e.target.value)}
+                                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-500">İndirim %</label>
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                value={line.discountPercent}
+                                onChange={(e) =>
+                                  updateLine(line.id, 'discountPercent', e.target.value)
+                                }
+                                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="flex justify-end gap-2 pt-2">
                       <button
                         type="button"
@@ -552,6 +861,11 @@ export default function Invoices({
                             <td className="py-2 text-right">{formatMoney(line.unitPrice)}</td>
                             <td className="py-2 text-right font-medium">
                               {formatMoney(line.totalPrice)}
+                              {(line.discountPercent ?? 0) > 0 && (
+                                <span className="block text-[10px] text-amber-600">
+                                  %{line.discountPercent} ind.
+                                </span>
+                              )}
                             </td>
                           </tr>
                         ))}

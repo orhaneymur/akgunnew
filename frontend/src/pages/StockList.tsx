@@ -42,6 +42,9 @@ export default function StockList({ onNotify }: StockListProps = {}) {
     priceTl: '',
     priceUsd: '',
   });
+  const [stockForm, setStockForm] = useState<Array<{ branchId: number; branchName: string; quantity: string }>>(
+    []
+  );
   const [submitting, setSubmitting] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -113,6 +116,13 @@ export default function StockList({ onNotify }: StockListProps = {}) {
       priceTl: String(product.priceTl),
       priceUsd: String(product.priceUsd),
     });
+    setStockForm(
+      productStocks(product).map((stock) => ({
+        branchId: stock.branchId,
+        branchName: stock.branch.name,
+        quantity: String(stock.quantity),
+      }))
+    );
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -128,7 +138,17 @@ export default function StockList({ onNotify }: StockListProps = {}) {
         priceTl: Number(form.priceTl),
         priceUsd: Number(form.priceUsd),
       });
-      notify('success', 'Ürün güncellendi.');
+
+      if (stockForm.length > 0) {
+        await axios.put(`${API_BASE}/api/products/${editing.id}/stock`, {
+          stocks: stockForm.map((row) => ({
+            branchId: row.branchId,
+            quantity: Number(row.quantity),
+          })),
+        });
+      }
+
+      notify('success', 'Ürün ve stok güncellendi.');
       setEditing(null);
       await loadProducts(search, page);
     } catch (error) {
@@ -445,8 +465,34 @@ export default function StockList({ onNotify }: StockListProps = {}) {
                   />
                 </div>
               </div>
+              {stockForm.length > 0 && (
+                <div className="space-y-2 border-t border-slate-100 pt-3">
+                  <p className="text-xs font-semibold uppercase text-slate-500">Depo Stokları</p>
+                  {stockForm.map((row, index) => (
+                    <div key={row.branchId} className="flex items-center gap-2">
+                      <span className="flex-1 text-sm text-slate-700">
+                        {depotLabel(row.branchName)}
+                      </span>
+                      <input
+                        type="number"
+                        step="any"
+                        value={row.quantity}
+                        onChange={(e) =>
+                          setStockForm((prev) =>
+                            prev.map((item, i) =>
+                              i === index ? { ...item, quantity: e.target.value } : item
+                            )
+                          )
+                        }
+                        className="w-28 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-right"
+                      />
+                      <span className="text-xs text-slate-400">adet</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <p className="text-xs text-slate-400">
-                Stok miktarı depo transferi ve satış/alış/iade ile değişir.
+                Stok miktarını buradan düzeltebilir veya depo transferi kullanabilirsiniz.
               </p>
             </div>
             <div className="border-t border-slate-100 bg-slate-50 px-5 py-4 flex justify-end gap-2">

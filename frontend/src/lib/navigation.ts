@@ -102,7 +102,7 @@ export const menuCategories: MenuCategory[] = [
     icon: Users,
     items: [
       { id: 'customer-list', label: 'Müşteri Listesi' },
-      { id: 'customer-payments', label: 'Tahsilat / Ödeme' },
+      { id: 'customer-payments', label: 'Tahsilat / Ödeme', badge: 'F2' },
       { id: 'customer-balance', label: 'Müşteri Bakiye' },
     ],
   },

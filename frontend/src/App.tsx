@@ -36,7 +36,12 @@ import CustomerStatement from './pages/CustomerStatement';
 import AnalyticsReport from './pages/AnalyticsReport';
 import Login from './pages/Login';
 
-const F2_ENABLED_PAGES: PageId[] = ['sales', 'invoice-purchase', 'sales-return'];
+const F2_ENABLED_PAGES: PageId[] = [
+  'sales',
+  'invoice-purchase',
+  'sales-return',
+  'customer-payments',
+];
 
 const initialOpenMenus = menuCategories.reduce(
   (acc, cat) => {
@@ -171,7 +176,7 @@ function App() {
         if (!F2_ENABLED_PAGES.includes(activePage)) {
           showNotification(
             'error',
-            'F2 yalnızca Satış, Alış Faturası ve Satış İade ekranlarında çalışır.'
+            'F2 yalnızca Satış, Alış Faturası, Satış İade ve Tahsilat/Ödeme ekranlarında çalışır.'
           );
           return;
         }
@@ -275,6 +280,7 @@ function App() {
       case 'customer-payments':
         return (
           <CustomerPayment
+            f2Trigger={f2Trigger}
             onNotify={showNotification}
             onDataChange={handleDataChange}
           />

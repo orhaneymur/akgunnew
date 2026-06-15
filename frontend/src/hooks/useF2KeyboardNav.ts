@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import type { F2Product } from './useF2ProductSearch';
 
 const NAV_KEYS = new Set([
   'ArrowDown',
@@ -10,12 +9,12 @@ const NAV_KEYS = new Set([
   'Escape',
 ]);
 
-export function useF2KeyboardNav(options: {
+export function useF2KeyboardNav<T>(options: {
   open: boolean;
-  results: F2Product[];
+  results: T[];
   focusedIndex: number;
   navigateFocus: (delta: number) => void;
-  onSelect: (product: F2Product) => void;
+  onSelect: (item: T) => void;
   onClose: () => void;
 }) {
   const { open, results, focusedIndex, navigateFocus, onSelect, onClose } = options;

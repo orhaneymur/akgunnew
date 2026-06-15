@@ -245,6 +245,127 @@ async function incrementStock(
   }
 }
 
+async function adjustStockQuantity(
+  tx: Prisma.TransactionClient,
+  productId: number,
+  branchId: number,
+  delta: number
+) {
+  if (!delta) return;
+
+  const stockKey = {
+    productId_branchId: { productId, branchId },
+  };
+  const stock = await tx.productStock.findUnique({ where: stockKey });
+
+  if (stock) {
+    await tx.productStock.update({
+      where: stockKey,
+      data: { quantity: { increment: delta } },
+    });
+  } else {
+    await tx.productStock.create({
+      data: { productId, branchId, quantity: delta },
+    });
+  }
+}
+
+async function applyInvoiceStockDelta(
+  tx: Prisma.TransactionClient,
+  invoiceType: string,
+  isPreOrder: boolean,
+  productId: number,
+  branchId: number,
+  qtyDelta: number
+) {
+  if (!qtyDelta) return;
+
+  if (invoiceType === 'SATIS') {
+    if (isPreOrder) return;
+    await adjustStockQuantity(tx, productId, branchId, -qtyDelta);
+  } else if (invoiceType === 'ALIS' || invoiceType === 'IADE') {
+    await adjustStockQuantity(tx, productId, branchId, qtyDelta);
+  }
+}
+
+async function applyInvoiceFinancialDelta(
+  tx: Prisma.TransactionClient,
+  params: {
+    invoiceType: string;
+    paymentMethod: string;
+    customerId: number;
+    safeId: number;
+    amountDelta: number;
+  }
+) {
+  const { invoiceType, paymentMethod, customerId, safeId, amountDelta } = params;
+  if (!amountDelta) return;
+
+  if (invoiceType === 'SATIS') {
+    if (paymentMethod === 'Cari') {
+      await tx.customer.update({
+        where: { id: customerId },
+        data: { balance: { increment: amountDelta } },
+      });
+    } else if (isCashLikePayment(paymentMethod)) {
+      await tx.safe.update({
+        where: { id: safeId },
+        data: { balance: { increment: amountDelta } },
+      });
+    }
+  } else if (invoiceType === 'ALIS') {
+    if (paymentMethod === 'Cari') {
+      await tx.customer.update({
+        where: { id: customerId },
+        data: { balance: { decrement: amountDelta } },
+      });
+    } else if (isCashLikePayment(paymentMethod)) {
+      await tx.safe.update({
+        where: { id: safeId },
+        data: { balance: { decrement: amountDelta } },
+      });
+    }
+  } else if (invoiceType === 'IADE') {
+    await tx.customer.update({
+      where: { id: customerId },
+      data: { balance: { decrement: amountDelta } },
+    });
+  }
+}
+
+async function reconcileInvoiceFinancials(
+  tx: Prisma.TransactionClient,
+  before: {
+    invoiceType: string;
+    paymentMethod: string;
+    customerId: number;
+    safeId: number;
+    totalAmountTl: number;
+  },
+  after: {
+    invoiceType: string;
+    paymentMethod: string;
+    customerId: number;
+    safeId: number;
+    totalAmountTl: number;
+  }
+) {
+  await applyInvoiceFinancialDelta(tx, {
+    invoiceType: before.invoiceType,
+    paymentMethod: before.paymentMethod,
+    customerId: before.customerId,
+    safeId: before.safeId,
+    amountDelta: -before.totalAmountTl,
+  });
+  await applyInvoiceFinancialDelta(tx, {
+    invoiceType: after.invoiceType,
+    paymentMethod: after.paymentMethod,
+    customerId: after.customerId,
+    safeId: after.safeId,
+    amountDelta: after.totalAmountTl,
+  });
+}
+
 async function getReturnedQtyMap(
   sourceItemIds: number[]
 ): Promise<Map<number, number>> {
@@ -1344,13 +1465,23 @@ app.put<{
   Params: { id: string };
   Body: {
     paymentMethod?: string;
-    paymentType?: string;
-    processedBy?: string;
-    orderNotes?: string;
+    paymentType?: string | null;
+    processedBy?: string | null;
+    orderNotes?: string | null;
     deliveryType?: string;
-    shippingCompany?: string;
-    trackingNumber?: string;
+    shippingCompany?: string | null;
+    trackingNumber?: string | null;
     dueDate?: string | null;
+    invoiceDate?: string | null;
+    exchangeRate?: number;
+    isPreOrder?: boolean;
+    customerId?: number;
+    items?: Array<{
+      id: number;
+      quantity?: number;
+      unitPrice?: number;
+      discountPercent?: number;
+    }>;
   };
 }>('/api/sales/invoices/:id', async (request, reply) => {
   const id = Number(request.params.id);
@@ -1362,53 +1493,311 @@ app.put<{
     });
   }
 
-  const existing = await prisma.invoice.findUnique({ where: { id } });
-  if (!existing) {
-    return reply.status(404).send({
+  const body = request.body ?? {};
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.invoice.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+
+      if (!existing) {
+        throw new Error('Fatura bulunamadı.');
+      }
+
+      const merkezDepoId = await getDepotBranchId(tx, 'MERKEZ');
+      const returnedMap = await getReturnedQtyMap(existing.items.map((item) => item.id));
+
+      const nextIsPreOrder =
+        body.isPreOrder !== undefined ? body.isPreOrder : existing.isPreOrder;
+      const nextCustomerId =
+        body.customerId !== undefined ? Number(body.customerId) : existing.customerId;
+      const nextPaymentMethod =
+        body.paymentMethod !== undefined ? body.paymentMethod : existing.paymentMethod;
+      const nextSafeId = existing.safeId;
+      const nextRate =
+        body.exchangeRate !== undefined && body.exchangeRate > 0
+          ? Number(body.exchangeRate)
+          : existing.exchangeRate;
+
+      if (
+        body.customerId !== undefined &&
+        (!Number.isFinite(nextCustomerId) || nextCustomerId <= 0)
+      ) {
+        throw new Error('Geçersiz müşteri.');
+      }
+
+      if (
+        existing.type === 'SATIS' &&
+        body.isPreOrder !== undefined &&
+        body.isPreOrder !== existing.isPreOrder
+      ) {
+        for (const item of existing.items) {
+          if (body.isPreOrder) {
+            await adjustStockQuantity(tx, item.productId, merkezDepoId, item.quantity);
+          } else {
+            await adjustStockQuantity(tx, item.productId, merkezDepoId, -item.quantity);
+          }
+        }
+      }
+
+      if (body.items?.length) {
+        const itemMap = new Map(existing.items.map((item) => [item.id, item]));
+
+        for (const patch of body.items) {
+          const current = itemMap.get(patch.id);
+          if (!current) {
+            throw new Error(`Fatura kalemi #${patch.id} bulunamadı.`);
+          }
+
+          const nextQty =
+            patch.quantity !== undefined ? Number(patch.quantity) : current.quantity;
+          const nextUnitPrice =
+            patch.unitPrice !== undefined ? Number(patch.unitPrice) : current.unitPrice;
+          const nextDiscount =
+            patch.discountPercent !== undefined
+              ? Number(patch.discountPercent)
+              : current.discountPercent;
+
+          if (!Number.isFinite(nextQty) || nextQty <= 0) {
+            throw new Error('Adet sıfırdan büyük olmalı.');
+          }
+          if (!Number.isFinite(nextUnitPrice) || nextUnitPrice < 0) {
+            throw new Error('Birim fiyat geçersiz.');
+          }
+
+          const returnedQty = returnedMap.get(current.id) ?? 0;
+          if (nextQty < returnedQty) {
+            throw new Error(
+              `${current.id} numaralı satırda iade edilen ${returnedQty} adetten az olamaz.`
+            );
+          }
+
+          const qtyDelta = nextQty - current.quantity;
+          await applyInvoiceStockDelta(
+            tx,
+            existing.type,
+            nextIsPreOrder,
+            current.productId,
+            merkezDepoId,
+            qtyDelta
+          );
+
+          const lineTotal = roundMoney(
+            calcLineTotalTl({
+              productId: current.productId,
+              quantity: nextQty,
+              unitPrice: nextUnitPrice,
+              discountPercent: nextDiscount,
+            })
+          );
+
+          await tx.invoiceItem.update({
+            where: { id: current.id },
+            data: {
+              quantity: nextQty,
+              unitPrice: roundMoney(nextUnitPrice),
+              discountPercent: nextDiscount,
+              totalPrice: lineTotal,
+            },
+          });
+
+          if (existing.type === 'ALIS' && patch.unitPrice !== undefined) {
+            await tx.product.update({
+              where: { id: current.productId },
+              data: {
+                costPrice: roundMoney(nextUnitPrice),
+                priceUsd: nextUnitPrice > 0 ? nextUnitPrice / nextRate : 0,
+              },
+            });
+          }
+        }
+      }
+
+      const refreshedItems = await tx.invoiceItem.findMany({ where: { invoiceId: id } });
+      const totalAmountTl = roundMoney(
+        refreshedItems.reduce(
+          (sum, item) =>
+            sum +
+            calcLineTotalTl({
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              discountPercent: item.discountPercent,
+            }),
+          0
+        )
+      );
+      const totalAmountUsd = roundMoney(totalAmountTl / nextRate);
+
+      const financialChanged =
+        body.customerId !== undefined ||
+        body.paymentMethod !== undefined ||
+        body.items !== undefined ||
+        body.exchangeRate !== undefined;
+
+      if (financialChanged) {
+        const beforeFinancial = {
+          invoiceType: existing.type,
+          paymentMethod: existing.paymentMethod,
+          customerId: existing.customerId,
+          safeId: existing.safeId,
+          totalAmountTl: existing.totalAmountTl,
+        };
+        const afterFinancial = {
+          invoiceType: existing.type,
+          paymentMethod: nextPaymentMethod,
+          customerId: nextCustomerId,
+          safeId: nextSafeId,
+          totalAmountTl,
+        };
+
+        if (
+          beforeFinancial.customerId !== afterFinancial.customerId ||
+          beforeFinancial.paymentMethod !== afterFinancial.paymentMethod ||
+          beforeFinancial.totalAmountTl !== afterFinancial.totalAmountTl
+        ) {
+          await reconcileInvoiceFinancials(tx, beforeFinancial, afterFinancial);
+        }
+      }
+
+      const matchedUser =
+        body.processedBy !== undefined && body.processedBy
+          ? await tx.user.findFirst({ where: { name: body.processedBy } })
+          : null;
+
+      return tx.invoice.update({
+        where: { id },
+        data: {
+          ...(body.paymentMethod !== undefined ? { paymentMethod: body.paymentMethod } : {}),
+          ...(body.paymentType !== undefined ? { paymentType: body.paymentType } : {}),
+          ...(body.processedBy !== undefined
+            ? {
+                processedBy: body.processedBy,
+                userId: matchedUser?.id ?? null,
+              }
+            : {}),
+          ...(body.orderNotes !== undefined ? { orderNotes: body.orderNotes } : {}),
+          ...(body.deliveryType !== undefined ? { deliveryType: body.deliveryType } : {}),
+          ...(body.shippingCompany !== undefined
+            ? { shippingCompany: body.shippingCompany }
+            : {}),
+          ...(body.trackingNumber !== undefined
+            ? { trackingNumber: body.trackingNumber }
+            : {}),
+          ...(body.dueDate !== undefined
+            ? { dueDate: body.dueDate ? new Date(body.dueDate) : null }
+            : {}),
+          ...(body.invoiceDate !== undefined
+            ? {
+                createdAt: body.invoiceDate
+                  ? buildInvoiceCreatedAt(body.invoiceDate)
+                  : existing.createdAt,
+              }
+            : {}),
+          ...(body.exchangeRate !== undefined ? { exchangeRate: nextRate } : {}),
+          ...(body.isPreOrder !== undefined ? { isPreOrder: body.isPreOrder } : {}),
+          ...(body.customerId !== undefined ? { customerId: nextCustomerId } : {}),
+          totalAmountTl,
+          totalAmountUsd,
+        },
+        include: {
+          customer: { select: { id: true, code: true, name: true } },
+          branch: { select: { id: true, name: true } },
+          user: { select: { id: true, name: true } },
+          safe: { select: { id: true, name: true } },
+          items: {
+            include: {
+              product: {
+                select: { id: true, sku: true, name: true, barcode: true },
+              },
+            },
+          },
+        },
+      });
+    });
+
+    const items = await enrichInvoiceItemsWithReturnable(updated.items);
+
+    return {
+      success: true,
+      data: { ...updated, items },
+      message: 'Fatura güncellendi.',
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Fatura güncellenemedi.';
+    return reply.status(500).send({
       success: false,
-      message: 'Fatura bulunamadı.',
+      message,
       errors: null,
     });
   }
-
-  const {
-    paymentMethod,
-    paymentType,
-    processedBy,
-    orderNotes,
-    deliveryType,
-    shippingCompany,
-    trackingNumber,
-    dueDate,
-  } = request.body ?? {};
-
-  const updated = await prisma.invoice.update({
-    where: { id },
-    data: {
-      ...(paymentMethod !== undefined ? { paymentMethod } : {}),
-      ...(paymentType !== undefined ? { paymentType } : {}),
-      ...(processedBy !== undefined ? { processedBy } : {}),
-      ...(orderNotes !== undefined ? { orderNotes } : {}),
-      ...(deliveryType !== undefined ? { deliveryType } : {}),
-      ...(shippingCompany !== undefined ? { shippingCompany } : {}),
-      ...(trackingNumber !== undefined ? { trackingNumber } : {}),
-      ...(dueDate !== undefined
-        ? { dueDate: dueDate ? new Date(dueDate) : null }
-        : {}),
-    },
-    include: {
-      customer: { select: { id: true, code: true, name: true } },
-      branch: { select: { id: true, name: true } },
-      user: { select: { id: true, name: true } },
-    },
-  });
-
-  return {
-    success: true,
-    data: updated,
-    message: 'Fatura güncellendi.',
-  };
 });
+
+app.post<{ Params: { id: string } }>(
+  '/api/sales/invoices/:id/fulfill',
+  async (request, reply) => {
+    const id = Number(request.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return reply.status(400).send({
+        success: false,
+        message: 'Geçersiz fatura id.',
+        errors: null,
+      });
+    }
+
+    try {
+      const invoice = await prisma.$transaction(async (tx) => {
+        const existing = await tx.invoice.findUnique({
+          where: { id },
+          include: { items: true },
+        });
+
+        if (!existing) {
+          throw new Error('Fatura bulunamadı.');
+        }
+        if (existing.type !== 'SATIS' || !existing.isPreOrder) {
+          throw new Error('Yalnızca ön sipariş satış faturaları tamamlanabilir.');
+        }
+
+        const merkezDepoId = await getDepotBranchId(tx, 'MERKEZ');
+
+        for (const item of existing.items) {
+          await adjustStockQuantity(
+            tx,
+            item.productId,
+            merkezDepoId,
+            -item.quantity
+          );
+        }
+
+        return tx.invoice.update({
+          where: { id },
+          data: { isPreOrder: false },
+          include: {
+            customer: { select: { id: true, code: true, name: true } },
+            items: true,
+          },
+        });
+      });
+
+      return {
+        success: true,
+        data: invoice,
+        message: 'Ön sipariş tamamlandı, stok düşüldü.',
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Ön sipariş tamamlanamadı.';
+      return reply.status(500).send({
+        success: false,
+        message,
+        errors: null,
+      });
+    }
+  }
+);
 
 app.get('/api/sales/init', async () => {
   const [branches, safes, personnels, nextInvoiceNo] = await Promise.all([
@@ -2654,6 +3043,97 @@ app.put<{
   }
 });
 
+app.put<{
+  Params: { id: string };
+  Body: {
+    stocks?: Array<{ branchId: number; quantity: number }>;
+  };
+}>('/api/products/:id/stock', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Geçersiz ürün id.',
+      errors: null,
+    });
+  }
+
+  const stocks = request.body?.stocks;
+  if (!stocks?.length) {
+    return reply.status(400).send({
+      success: false,
+      message: 'En az bir depo stok satırı gerekli.',
+      errors: null,
+    });
+  }
+
+  try {
+    const product = await prisma.$transaction(async (tx) => {
+      const existing = await tx.product.findUnique({ where: { id } });
+      if (!existing) {
+        throw new Error('Ürün bulunamadı.');
+      }
+
+      for (const row of stocks) {
+        const branchId = Number(row.branchId);
+        const quantity = Number(row.quantity);
+        if (!Number.isFinite(branchId) || branchId <= 0) {
+          throw new Error('Geçersiz şube id.');
+        }
+        if (!Number.isFinite(quantity)) {
+          throw new Error('Geçersiz stok miktarı.');
+        }
+
+        const branch = await tx.branch.findUnique({ where: { id: branchId } });
+        if (!branch) {
+          throw new Error(`Şube #${branchId} bulunamadı.`);
+        }
+
+        const stockKey = {
+          productId_branchId: { productId: id, branchId },
+        };
+        const current = await tx.productStock.findUnique({ where: stockKey });
+
+        if (current) {
+          await tx.productStock.update({
+            where: stockKey,
+            data: { quantity },
+          });
+        } else {
+          await tx.productStock.create({
+            data: { productId: id, branchId, quantity },
+          });
+        }
+      }
+
+      return tx.product.findUnique({
+        where: { id },
+        include: {
+          stocks: {
+            include: {
+              branch: { select: { id: true, name: true, type: true } },
+            },
+          },
+        },
+      });
+    });
+
+    return {
+      success: true,
+      data: product,
+      message: 'Stok miktarları güncellendi.',
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Stok güncellenemedi.';
+    return reply.status(500).send({
+      success: false,
+      message,
+      errors: null,
+    });
+  }
+});
+
 app.post<{
   Body: {
     productId: number;
@@ -3262,13 +3742,22 @@ app.get<{ Querystring: { page?: string; limit?: string; search?: string; product
         take: pagination.limit,
         skip: pagination.skip,
         include: {
-          product: { select: { id: true, sku: true, name: true } },
+          product: { select: { id: true, sku: true, name: true, barcode: true } },
           invoice: {
             select: {
+              id: true,
               invoiceNo: true,
               type: true,
               createdAt: true,
-              customer: { select: { code: true, name: true } },
+              isPreOrder: true,
+              paymentMethod: true,
+              paymentType: true,
+              processedBy: true,
+              exchangeRate: true,
+              totalAmountTl: true,
+              customer: { select: { id: true, code: true, name: true } },
+              branch: { select: { id: true, name: true } },
+              safe: { select: { id: true, name: true } },
             },
           },
         },
@@ -3279,10 +3768,12 @@ app.get<{ Querystring: { page?: string; limit?: string; search?: string; product
     const data = items.map((item) => {
       let direction: 'IN' | 'OUT' = 'IN';
       let depot = merkezDepo?.name ?? 'MERKEZ_DEPO';
+      let affectsStock = true;
 
       if (item.invoice.type === 'SATIS') {
         direction = 'OUT';
         depot = merkezDepo?.name ?? 'MERKEZ_DEPO';
+        affectsStock = !item.invoice.isPreOrder;
       } else if (item.invoice.type === 'ALIS') {
         direction = 'IN';
         depot = merkezDepo?.name ?? 'MERKEZ_DEPO';
@@ -3293,13 +3784,27 @@ app.get<{ Querystring: { page?: string; limit?: string; search?: string; product
 
       return {
         id: item.id,
+        invoiceId: item.invoice.id,
+        invoiceItemId: item.id,
         product: item.product,
         quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        discountPercent: item.discountPercent,
+        lineTotal: item.totalPrice,
         direction,
         depot,
+        affectsStock,
         invoiceNo: item.invoice.invoiceNo,
         invoiceType: item.invoice.type,
+        isPreOrder: item.invoice.isPreOrder,
+        paymentMethod: item.invoice.paymentMethod,
+        paymentType: item.invoice.paymentType,
+        processedBy: item.invoice.processedBy,
+        exchangeRate: item.invoice.exchangeRate,
+        invoiceTotalTl: item.invoice.totalAmountTl,
         customer: item.invoice.customer,
+        branch: item.invoice.branch,
+        safe: item.invoice.safe,
         createdAt: item.invoice.createdAt,
       };
     });

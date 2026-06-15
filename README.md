@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.7.8` · `since1907/akgun-frontend:v1.7.6`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.0` · `since1907/akgun-frontend:v1.8.0`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -262,7 +262,7 @@ http://localhost:5173
 | Stok Kartı | `frontend/src/pages/ProductCreate.tsx` |
 | Barkod Etiket | `frontend/src/pages/BarcodePrint.tsx` |
 | Müşteri Listesi | `frontend/src/pages/CustomerList.tsx` |
-| Tahsilat / Ödeme | `frontend/src/pages/CustomerPayment.tsx` |
+| Tahsilat / Ödeme | `frontend/src/pages/CustomerPayment.tsx` — kod/isim arama + **F2** hızlı müşteri paneli |
 | Müşteri Bakiye | `frontend/src/pages/CustomerBalances.tsx` |
 | Kâr-Zarar Raporu | `frontend/src/pages/ProfitReport.tsx` |
 | Fatura Listesi | `frontend/src/pages/Invoices.tsx` |
@@ -315,6 +315,8 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.7.5 | Satış fiyatı TL bazlı kayıt, fatura tarihi/saat düzeltmesi, müşteri seçim doğrulama |
 | v1.7.7 | Stok yetersiz olsa bile satışa izin; MERKEZ_DEPO eksi bakiyeye düşebilir |
 | v1.7.8 | `/api/version` endpoint, deploy script rollout restart ve sürüm doğrulama |
+| v1.7.9 | Tahsilat/Ödeme ekranında müşteri arama ve F2 hızlı müşteri bulma |
+| v1.8.0 | Stok hareketi detayları, fatura kalem düzenleme, stok miktarı düzenleme, ön sipariş tamamlama |
 
 ---
 
