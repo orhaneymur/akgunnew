@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  Eye,
   FileInput,
   FileOutput,
   PlusCircle,
@@ -19,6 +20,7 @@ import {
   invoiceTypeStyles,
 } from '../lib/api';
 import type { NavigateFn } from '../lib/navigation';
+import SalesCreate from './SalesCreate';
 
 type SafeBalance = {
   id: number;
@@ -32,9 +34,18 @@ type RecentInvoice = {
   id: number;
   invoiceNo: string;
   type: string;
+  isPreOrder?: boolean;
   totalAmountTl: number;
   createdAt: string;
   customer: { code: string; name: string };
+};
+
+type DashboardProps = {
+  refreshKey?: number;
+  f2Trigger?: number;
+  onNavigate?: NavigateFn;
+  onNotify?: (type: 'success' | 'error', message: string) => void;
+  onDataChange?: () => void;
 };
 
 type RecentPayment = {
@@ -54,40 +65,66 @@ type DashboardData = {
 
 export default function Dashboard({
   refreshKey = 0,
+  f2Trigger = 0,
   onNavigate,
-}: {
-  refreshKey?: number;
-  onNavigate?: NavigateFn;
-}) {
+  onNotify,
+  onDataChange,
+}: DashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
+
+  const notify = useCallback(
+    (type: 'success' | 'error', message: string) => onNotify?.(type, message),
+    [onNotify]
+  );
+
+  const loadDashboard = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await axios.get<{
+        success: boolean;
+        data: DashboardData;
+      }>(`${API_BASE}/api/sales/dashboard`);
+      if (response.data.success) {
+        const payload = response.data.data;
+        setData({
+          safeBalances: ensureArray(payload.safeBalances),
+          recentInvoices: ensureArray(payload.recentInvoices).slice(0, 5),
+          recentPayments: ensureArray(payload.recentPayments).slice(0, 5),
+        });
+      }
+    } catch {
+      setError('Ana sayfa verileri yüklenemedi.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await axios.get<{
-          success: boolean;
-          data: DashboardData;
-        }>(`${API_BASE}/api/sales/dashboard`);
-        if (response.data.success) {
-          const payload = response.data.data;
-          setData({
-            safeBalances: ensureArray(payload.safeBalances),
-            recentInvoices: ensureArray(payload.recentInvoices).slice(0, 5),
-            recentPayments: ensureArray(payload.recentPayments).slice(0, 5),
-          });
-        }
-      } catch {
-        setError('Ana sayfa verileri yüklenemedi.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [refreshKey]);
+    if (editingInvoiceId === null) {
+      void loadDashboard();
+    }
+  }, [refreshKey, editingInvoiceId, loadDashboard]);
+
+  const openEditor = (inv: RecentInvoice) => {
+    if (inv.type !== 'SATIS') {
+      notify('error', 'Alış ve iade faturaları bu ekrandan düzenlenemez.');
+      return;
+    }
+    setEditingInvoiceId(inv.id);
+  };
+
+  const closeEditor = () => {
+    setEditingInvoiceId(null);
+  };
+
+  const handleSaved = () => {
+    setEditingInvoiceId(null);
+    onDataChange?.();
+  };
 
   const quickActions = [
     { id: 'sales' as const, label: 'Satış Yap', icon: ShoppingCart, color: 'bg-emerald-600' },
@@ -103,11 +140,25 @@ export default function Dashboard({
     },
   ];
 
-  if (loading) {
+  if (loading && editingInvoiceId === null) {
     return (
       <div className="flex h-48 items-center justify-center">
         <p className="text-sm text-slate-400">Yükleniyor...</p>
       </div>
+    );
+  }
+
+  if (editingInvoiceId !== null) {
+    return (
+      <SalesCreate
+        key={editingInvoiceId}
+        editInvoiceId={editingInvoiceId}
+        f2Trigger={f2Trigger}
+        onNotify={onNotify}
+        onDataChange={onDataChange}
+        onCancelEdit={closeEditor}
+        onSaved={handleSaved}
+      />
     );
   }
 
@@ -178,23 +229,55 @@ export default function Dashboard({
           </div>
           <ul className="divide-y divide-slate-50">
             {data.recentInvoices.map((inv) => (
-              <li key={inv.id} className="flex items-center justify-between gap-2 px-4 py-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+              <li
+                key={inv.id}
+                className="flex items-center justify-between gap-2 px-4 py-3 hover:bg-slate-50/80"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span
                       className={`shrink-0 rounded px-1.5 py-0.5 text-[0.625rem] font-semibold ring-1 ring-inset ${invoiceTypeStyles(inv.type)}`}
                     >
                       {invoiceTypeLabel(inv.type)}
                     </span>
-                    <span className="truncate text-sm font-medium">{inv.invoiceNo}</span>
+                    {inv.isPreOrder && (
+                      <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[0.625rem] font-semibold text-amber-800">
+                        Ön Sipariş
+                      </span>
+                    )}
+                    {inv.type === 'SATIS' ? (
+                      <button
+                        type="button"
+                        onClick={() => openEditor(inv)}
+                        className="truncate text-sm font-medium text-violet-700 hover:text-violet-900 hover:underline"
+                      >
+                        {inv.invoiceNo}
+                      </button>
+                    ) : (
+                      <span className="truncate text-sm font-medium text-slate-800">
+                        {inv.invoiceNo}
+                      </span>
+                    )}
                   </div>
                   <p className="truncate text-xs text-slate-400">
                     {inv.customer.name} · {formatDate(inv.createdAt)}
                   </p>
                 </div>
-                <span className="shrink-0 text-sm font-semibold text-slate-800">
-                  {formatMoney(inv.totalAmountTl)}
-                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-800">
+                    {formatMoney(inv.totalAmountTl)}
+                  </span>
+                  {inv.type === 'SATIS' && (
+                    <button
+                      type="button"
+                      onClick={() => openEditor(inv)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
+                      title="Düzenle"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
             {data.recentInvoices.length === 0 && (

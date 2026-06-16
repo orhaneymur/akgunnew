@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.3` · `since1907/akgun-frontend:v1.8.9`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.3` · `since1907/akgun-frontend:v1.8.10`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -50,8 +50,8 @@ Menü tanımları: `frontend/src/lib/navigation.ts` · URL: `?page=sales`, `?pag
 
 ### Dashboard
 - Günlük **kasa durumları** (TL / USD kasalar)
-- **Personel ciroları** (günlük, aylık, yıllık)
-- Renkli **fatura akışı** ve son **kasa hareketleri**
+- **Son Faturalar** — satış faturalarında fatura no veya göz ikonuna tıklayınca aynı sayfada düzenleme (Fatura Listesi ile aynı akış)
+- Son **kasa hareketleri**
 - **5 hızlı erişim kartı:** Satış Yap, Alış Faturası, İade Al, Stok Kartı Oluştur, Fatura Listesi
 
 ### Hızlı Satış (F2) — v1.7+
@@ -352,6 +352,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.8.7 | Fatura/ön sipariş düzenleme — popup kaldırıldı; Satış Yap ekranı ile aynı sayfada tam düzenleme ve tek kaydet |
 | v1.8.8 | Satış iade — fatura seçimi kaldırıldı; müşteri+ürün, 6 ay kontrolü, son fiyat ve fatura no ile sepet |
 | v1.8.9 | Fatura düzenlemede F2 ile ürün ekleme ve satır silme; stok ve cari otomatik güncellenir |
+| v1.8.10 | Ana sayfa Son Faturalar — tıklayınca fatura düzenleme (Satış Yap ekranı, aynı sayfa) |
 ---
 
 ## Ingress / Domain (Rancher)

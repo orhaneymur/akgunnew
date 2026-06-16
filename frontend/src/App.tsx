@@ -207,7 +207,15 @@ function App() {
   const pageContent = useMemo(() => {
     switch (activePage) {
       case 'dashboard':
-        return <Dashboard refreshKey={dashboardRefreshKey} onNavigate={navigateTo} />;
+        return (
+          <Dashboard
+            refreshKey={dashboardRefreshKey}
+            f2Trigger={f2Trigger}
+            onNavigate={navigateTo}
+            onNotify={showNotification}
+            onDataChange={handleDataChange}
+          />
+        );
       case 'sales':
         return (
           <SalesCreate
