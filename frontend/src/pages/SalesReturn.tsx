@@ -140,6 +140,10 @@ export default function SalesReturn({
     [onNotify]
   );
 
+  const closeInvoiceView = useCallback(() => {
+    setViewingInvoiceId(null);
+  }, []);
+
   const loadInit = useCallback(async () => {
     try {
       const [initRes, customersRes] = await Promise.all([
@@ -395,7 +399,7 @@ export default function SalesReturn({
         f2Trigger={f2Trigger}
         onNotify={onNotify}
         onDataChange={onDataChange}
-        onCancelEdit={() => setViewingInvoiceId(null)}
+        onCancelEdit={closeInvoiceView}
       />
     );
   }

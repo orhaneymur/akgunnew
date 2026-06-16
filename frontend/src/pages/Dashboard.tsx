@@ -111,22 +111,25 @@ export default function Dashboard({
     }
   }, [refreshKey, editingInvoiceId, loadDashboard]);
 
-  const openEditor = (inv: RecentInvoice) => {
-    if (inv.type !== 'SATIS') {
-      notify('error', 'Alış ve iade faturaları bu ekrandan düzenlenemez.');
-      return;
-    }
-    setEditingInvoiceId(inv.id);
-  };
+  const openEditor = useCallback(
+    (inv: RecentInvoice) => {
+      if (inv.type !== 'SATIS') {
+        notify('error', 'Alış ve iade faturaları bu ekrandan düzenlenemez.');
+        return;
+      }
+      setEditingInvoiceId(inv.id);
+    },
+    [notify]
+  );
 
-  const closeEditor = () => {
+  const closeEditor = useCallback(() => {
     setEditingInvoiceId(null);
-  };
+  }, []);
 
-  const handleSaved = () => {
+  const handleSaved = useCallback(() => {
     setEditingInvoiceId(null);
     onDataChange?.();
-  };
+  }, [onDataChange]);
 
   const quickActions = [
     { id: 'sales' as const, label: 'Satış Yap', icon: ShoppingCart, color: 'bg-emerald-600' },

@@ -114,23 +114,26 @@ export default function Invoices({
 
   const hasActiveSearch = Boolean(appliedCustomerSearch.trim() || appliedProductSearch.trim());
 
-  const openEditor = (inv: Invoice) => {
-    if (inv.type !== 'SATIS') {
-      notify('error', 'Alış ve iade faturaları bu ekrandan düzenlenemez.');
-      return;
-    }
-    setEditingInvoiceId(inv.id);
-  };
+  const openEditor = useCallback(
+    (inv: Invoice) => {
+      if (inv.type !== 'SATIS') {
+        notify('error', 'Alış ve iade faturaları bu ekrandan düzenlenemez.');
+        return;
+      }
+      setEditingInvoiceId(inv.id);
+    },
+    [notify]
+  );
 
-  const closeEditor = () => {
+  const closeEditor = useCallback(() => {
     setEditingInvoiceId(null);
-  };
+  }, []);
 
-  const handleSaved = () => {
+  const handleSaved = useCallback(() => {
     setEditingInvoiceId(null);
     loadInvoices();
     onDataChange?.();
-  };
+  }, [loadInvoices, onDataChange]);
 
   const filters: { value: FilterType; label: string }[] = [
     { value: 'ALL', label: 'Tümü' },

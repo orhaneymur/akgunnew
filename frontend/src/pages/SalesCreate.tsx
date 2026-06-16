@@ -131,11 +131,16 @@ export default function SalesCreate({
 }: SalesCreateProps) {
   const isEditMode = editInvoiceId != null && editInvoiceId > 0;
 
+  const onCancelEditRef = useRef(onCancelEdit);
+  const onF2ContextActiveRef = useRef(onF2ContextActive);
+  onCancelEditRef.current = onCancelEdit;
+  onF2ContextActiveRef.current = onF2ContextActive;
+
   useEffect(() => {
-    if (!isEditMode || !onF2ContextActive) return;
-    onF2ContextActive(true);
-    return () => onF2ContextActive(false);
-  }, [isEditMode, onF2ContextActive]);
+    if (!isEditMode) return;
+    onF2ContextActiveRef.current?.(true);
+    return () => onF2ContextActiveRef.current?.(false);
+  }, [isEditMode]);
   const [initData, setInitData] = useState<InitData>({
     branches: [],
     safes: [],
@@ -249,14 +254,16 @@ export default function SalesCreate({
           branches.find((b) => !b.name.includes('DEPO')) ??
           branches[0];
 
-        if (branch) {
-          setSelectedBranch(branch.id);
-          const branchSafe = safes.find((s) => s.branchId === branch.id);
-          if (branchSafe) setSelectedSafe(branchSafe.id);
-        }
+        if (!isEditMode) {
+          if (branch) {
+            setSelectedBranch(branch.id);
+            const branchSafe = safes.find((s) => s.branchId === branch.id);
+            if (branchSafe) setSelectedSafe(branchSafe.id);
+          }
 
-        if (personnels.length > 0 && !processedBy && !isEditMode) {
-          setProcessedBy(personnels[0].name);
+          if (personnels.length > 0 && !processedBy) {
+            setProcessedBy(personnels[0].name);
+          }
         }
       }
     } catch {
@@ -311,6 +318,9 @@ export default function SalesCreate({
     };
   }, [customerSearch, customerDropdownOpen]);
 
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
+
   useEffect(() => {
     if (!isEditMode || !editInvoiceId) return;
 
@@ -351,8 +361,8 @@ export default function SalesCreate({
         const data = invRes.data.data;
 
         if (data.type !== 'SATIS') {
-          notify('error', 'Yalnızca satış faturaları düzenlenebilir.');
-          onCancelEdit?.();
+          notifyRef.current('error', 'Yalnızca satış faturaları düzenlenebilir.');
+          onCancelEditRef.current?.();
           return;
         }
 
@@ -411,8 +421,8 @@ export default function SalesCreate({
         );
       } catch {
         if (!cancelled) {
-          notify('error', 'Fatura yüklenemedi.');
-          onCancelEdit?.();
+          notifyRef.current('error', 'Fatura yüklenemedi.');
+          onCancelEditRef.current?.();
         }
       } finally {
         if (!cancelled) setEditLoading(false);
@@ -423,7 +433,7 @@ export default function SalesCreate({
     return () => {
       cancelled = true;
     };
-  }, [editInvoiceId, isEditMode, notify, onCancelEdit]);
+  }, [editInvoiceId, isEditMode]);
 
   useEffect(() => {
     if (isEditMode) return;
