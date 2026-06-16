@@ -333,7 +333,8 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 **Önemli:** Canlı ortamda `kubectl apply -f k8s/ingress.yaml` **kullanmayın** — Rancher’daki host/TLS ayarlarının üzerine yazabilir.
 
 - ERP timeout (504): `bash k8s/patch-ingress-timeouts.sh` (host’a dokunmaz)
-- **Domain açılmıyor, NodePort çalışıyor:** `bash k8s/fix-production-ingress.sh`
+- **Domain açılmıyor, NodePort çalışıyor:** `bash k8s/fix-production-ingress.sh` (Traefik sınıfına geçirir)
+- **DNS Cloudflare’de** (172.67.x / 104.21.x): Origin sunucu `213.238.168.227` olmalı
 - Domain yönlendirmesi: **Rancher UI** → Ingress → backend: `akgunteknik-frontend:80`
 - Ingress çalışmazsa doğrudan erişim: `kubectl get svc akgunteknik-frontend` → `EXTERNAL-IP:NodePort` (ör. `:30179`)
 
