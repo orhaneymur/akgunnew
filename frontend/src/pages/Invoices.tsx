@@ -1,64 +1,26 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
-import { CheckCircle, Eye, FileText, Filter, Package, Pencil, Save, Search, User, X } from 'lucide-react';
+import { Eye, FileText, Filter, Package, Search, User } from 'lucide-react';
 import {
   API_BASE,
-  ensureArray,
   formatDate,
   formatMoney,
   invoiceTypeLabel,
   invoiceTypeStyles,
-  type Customer,
   type InvoiceType,
-  type PaginatedListResponse,
 } from '../lib/api';
 import ExcelActions from '../components/ExcelActions';
+import SalesCreate from './SalesCreate';
 
 type Invoice = {
   id: number;
   invoiceNo: string;
   type: string;
   isPreOrder?: boolean;
-  paymentMethod: string;
-  paymentType: string | null;
-  processedBy: string | null;
-  orderNotes: string | null;
-  deliveryType: string;
-  shippingCompany?: string | null;
-  trackingNumber?: string | null;
-  dueDate?: string | null;
-  exchangeRate?: number;
   totalAmountTl: number;
-  totalAmountUsd: number;
   createdAt: string;
   customer: { id: number; code: string; name: string };
-  user: { id: number; name: string } | null;
   branch: { id: number; name: string };
-  safe?: { id: number; name: string } | null;
-  originalInvoice?: { id: number; invoiceNo: string; type: string } | null;
-};
-
-type InvoiceLine = {
-  id: number;
-  quantity: number;
-  unitPrice: number;
-  discountPercent?: number;
-  totalPrice: number;
-  returnedQty?: number;
-  returnableQty?: number;
-  product: { sku: string; name: string };
-};
-
-type EditableLine = {
-  id: number;
-  quantity: string;
-  unitPrice: string;
-  discountPercent: string;
-  product: { sku: string; name: string };
-};
-
-type InvoiceDetail = Invoice & {
-  items: InvoiceLine[];
 };
 
 type FilterType = 'ALL' | InvoiceType;
@@ -67,18 +29,22 @@ type InvoicesProps = {
   initialFilter?: FilterType;
   preOrderOnly?: boolean;
   refreshKey?: number;
+  f2Trigger?: number;
   title?: string;
   description?: string;
   onNotify?: (type: 'success' | 'error', message: string) => void;
+  onDataChange?: () => void;
 };
 
 export default function Invoices({
   initialFilter = 'ALL',
   preOrderOnly = false,
   refreshKey = 0,
+  f2Trigger = 0,
   title = 'Fatura Listesi',
   description = 'Satış, alış ve iade faturaları — görüntüle ve düzenle',
   onNotify,
+  onDataChange,
 }: InvoicesProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [filter, setFilter] = useState<FilterType>(initialFilter);
@@ -87,31 +53,7 @@ export default function Invoices({
   const [appliedCustomerSearch, setAppliedCustomerSearch] = useState('');
   const [appliedProductSearch, setAppliedProductSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [detail, setDetail] = useState<InvoiceDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({
-    paymentMethod: '',
-    paymentType: '',
-    processedBy: '',
-    orderNotes: '',
-    deliveryType: '',
-    shippingCompany: '',
-    trackingNumber: '',
-    dueDate: '',
-    invoiceDate: '',
-    exchangeRate: '',
-    isPreOrder: false,
-    customerSearch: '',
-    items: [] as EditableLine[],
-  });
-  const [customerResults, setCustomerResults] = useState<Customer[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
-  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
-  const [fulfilling, setFulfilling] = useState(false);
-  const customerDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
 
   const notify = useCallback(
     (type: 'success' | 'error', message: string) => onNotify?.(type, message),
@@ -170,144 +112,22 @@ export default function Invoices({
 
   const hasActiveSearch = Boolean(appliedCustomerSearch.trim() || appliedProductSearch.trim());
 
-  useEffect(() => {
-    if (!editing) return;
-    const query = form.customerSearch.trim();
-    if (!customerDropdownOpen || query.length < 1) {
-      setCustomerResults([]);
+  const openEditor = (inv: Invoice) => {
+    if (inv.type !== 'SATIS') {
+      notify('error', 'Alış ve iade faturaları bu ekrandan düzenlenemez.');
       return;
     }
-
-    if (customerDebounceRef.current) clearTimeout(customerDebounceRef.current);
-    customerDebounceRef.current = setTimeout(async () => {
-      setCustomerSearchLoading(true);
-      try {
-        const response = await axios.get<PaginatedListResponse<Customer>>(
-          `${API_BASE}/api/customers`,
-          { params: { search: query, limit: 20, page: 1 } }
-        );
-        if (response.data.success) {
-          setCustomerResults(ensureArray(response.data.data));
-        }
-      } catch {
-        setCustomerResults([]);
-      } finally {
-        setCustomerSearchLoading(false);
-      }
-    }, 300);
-
-    return () => {
-      if (customerDebounceRef.current) clearTimeout(customerDebounceRef.current);
-    };
-  }, [form.customerSearch, customerDropdownOpen, editing]);
-
-  const openDetail = async (inv: Invoice) => {
-    setDetailLoading(true);
-    setEditing(false);
-    try {
-      const res = await axios.get<{ success: boolean; data: InvoiceDetail }>(
-        `${API_BASE}/api/sales/invoices/${inv.id}`
-      );
-      if (res.data.success) {
-        const data = res.data.data;
-        setDetail(data);
-        setSelectedCustomer(data.customer as Customer);
-        setForm({
-          paymentMethod: data.paymentMethod,
-          paymentType: data.paymentType ?? '',
-          processedBy: data.processedBy ?? '',
-          orderNotes: data.orderNotes ?? '',
-          deliveryType: data.deliveryType,
-          shippingCompany: data.shippingCompany ?? '',
-          trackingNumber: data.trackingNumber ?? '',
-          dueDate: data.dueDate ? data.dueDate.slice(0, 10) : '',
-          invoiceDate: data.createdAt.slice(0, 10),
-          exchangeRate: String(data.exchangeRate ?? 1),
-          isPreOrder: Boolean(data.isPreOrder),
-          customerSearch: `${data.customer.code} — ${data.customer.name}`,
-          items: data.items.map((line) => ({
-            id: line.id,
-            quantity: String(line.quantity),
-            unitPrice: String(line.unitPrice),
-            discountPercent: String(line.discountPercent ?? 0),
-            product: line.product,
-          })),
-        });
-      }
-    } catch {
-      notify('error', 'Fatura detayı yüklenemedi.');
-    } finally {
-      setDetailLoading(false);
-    }
+    setEditingInvoiceId(inv.id);
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!detail) return;
-    setSubmitting(true);
-    try {
-      await axios.put(`${API_BASE}/api/sales/invoices/${detail.id}`, {
-        paymentMethod: form.paymentMethod,
-        paymentType: form.paymentType || null,
-        processedBy: form.processedBy || null,
-        orderNotes: form.orderNotes || null,
-        deliveryType: form.deliveryType,
-        shippingCompany: form.shippingCompany || null,
-        trackingNumber: form.trackingNumber || null,
-        dueDate: form.dueDate || null,
-        invoiceDate: form.invoiceDate || null,
-        exchangeRate: Number(form.exchangeRate) || 1,
-        isPreOrder: form.isPreOrder,
-        customerId: selectedCustomer?.id,
-        items: form.items.map((line) => ({
-          id: line.id,
-          quantity: Number(line.quantity),
-          unitPrice: Number(line.unitPrice),
-          discountPercent: Number(line.discountPercent) || 0,
-        })),
-      });
-      notify('success', 'Fatura güncellendi.');
-      setEditing(false);
-      await loadInvoices();
-      await openDetail(detail);
-    } catch (error) {
-      const message =
-        axios.isAxiosError(error) && error.response?.data?.message
-          ? String(error.response.data.message)
-          : 'Güncelleme başarısız.';
-      notify('error', message);
-    } finally {
-      setSubmitting(false);
-    }
+  const closeEditor = () => {
+    setEditingInvoiceId(null);
   };
 
-  const handleFulfill = async () => {
-    if (!detail) return;
-    setFulfilling(true);
-    try {
-      await axios.post(`${API_BASE}/api/sales/invoices/${detail.id}/fulfill`);
-      notify('success', 'Ön sipariş tamamlandı, stok düşüldü.');
-      await loadInvoices();
-      await openDetail(detail);
-    } catch (error) {
-      const message =
-        axios.isAxiosError(error) && error.response?.data?.message
-          ? String(error.response.data.message)
-          : 'Tamamlama başarısız.';
-      notify('error', message);
-    } finally {
-      setFulfilling(false);
-    }
-  };
-
-  const updateLine = (id: number, field: keyof EditableLine, value: string) => {
-    if (field === 'product') return;
-    setForm((prev) => ({
-      ...prev,
-      items: prev.items.map((line) =>
-        line.id === id ? { ...line, [field]: value } : line
-      ),
-    }));
+  const handleSaved = () => {
+    setEditingInvoiceId(null);
+    loadInvoices();
+    onDataChange?.();
   };
 
   const filters: { value: FilterType; label: string }[] = [
@@ -316,6 +136,20 @@ export default function Invoices({
     { value: 'ALIS', label: 'Alış' },
     { value: 'IADE', label: 'İade' },
   ];
+
+  if (editingInvoiceId !== null) {
+    return (
+      <SalesCreate
+        key={editingInvoiceId}
+        editInvoiceId={editingInvoiceId}
+        f2Trigger={f2Trigger}
+        onNotify={onNotify}
+        onDataChange={onDataChange}
+        onCancelEdit={closeEditor}
+        onSaved={handleSaved}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -342,137 +176,118 @@ export default function Invoices({
               hint="Yüklemede yalnızca mevcut faturaların üst bilgisi güncellenir."
             />
           )}
-        {!preOrderOnly && (
-        <div className="flex w-full items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm sm:w-auto">
-          <Filter className="ml-2 h-4 w-4 shrink-0 text-slate-400" />
-          {filters.map((item) => (
-            <button
-              key={item.value}
-              type="button"
-              onClick={() => setFilter(item.value)}
-              className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                filter === item.value
-                  ? item.value === 'ALIS'
-                    ? 'bg-red-100 text-red-700'
-                    : item.value === 'SATIS'
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : 'bg-indigo-100 text-indigo-700'
-                  : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        )}
+          {!preOrderOnly && (
+            <div className="flex w-full items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm sm:w-auto">
+              <Filter className="ml-2 h-4 w-4 shrink-0 text-slate-400" />
+              {filters.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setFilter(item.value)}
+                  className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                    filter === item.value
+                      ? 'bg-violet-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      <section className="rounded-2xl border border-violet-200/80 bg-gradient-to-br from-violet-50/80 to-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-violet-900">
+      <section className="rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50/80 to-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center gap-2 text-violet-800">
           <Search className="h-4 w-4" />
-          Fatura Ara
+          <h2 className="text-sm font-bold">Fatura Ara</h2>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
-            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-600">
-              <User className="h-3.5 w-3.5" />
-              Müşteri (ad veya cari kodu)
+            <label className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600">
+              <User className="h-3.5 w-3.5" /> Müşteri
             </label>
             <input
               type="text"
               value={customerSearch}
               onChange={(e) => setCustomerSearch(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && runSearch()}
-              placeholder="Örn: AHMET YILMAZ veya C001"
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-violet-500 focus:ring-violet-500"
+              placeholder="Cari adı veya kodu..."
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-600">
-              <Package className="h-3.5 w-3.5" />
-              Ürün (stok kodu, barkod veya ad)
+            <label className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600">
+              <Package className="h-3.5 w-3.5" /> Ürün
             </label>
             <input
               type="text"
               value={productSearch}
               onChange={(e) => setProductSearch(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && runSearch()}
-              placeholder="Örn: 3M BANT veya 12345"
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-violet-500 focus:ring-violet-500"
+              placeholder="Stok kodu, barkod veya ürün adı..."
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={runSearch}
-            className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-500"
+            className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-500"
           >
-            <Search className="h-4 w-4" />
             Ara
           </button>
           {hasActiveSearch && (
             <button
               type="button"
               onClick={clearSearch}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
             >
-              <X className="h-4 w-4" />
               Temizle
             </button>
-          )}
-          {hasActiveSearch && (
-            <p className="text-xs text-slate-500">
-              {appliedCustomerSearch.trim() && (
-                <span>Müşteri: <strong>{appliedCustomerSearch}</strong></span>
-              )}
-              {appliedCustomerSearch.trim() && appliedProductSearch.trim() && ' · '}
-              {appliedProductSearch.trim() && (
-                <span>Ürün: <strong>{appliedProductSearch}</strong></span>
-              )}
-            </p>
           )}
         </div>
       </section>
 
-      <section className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-100">
             <thead className="bg-slate-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
                   Fatura No
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
                   Tip
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
                   Müşteri
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
                   Şube
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                   Tutar (TL)
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                   Tarih
                 </th>
-                <th className="px-4 py-3 w-12" />
+                <th className="w-12 px-4 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400 text-sm">
+                  <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">
                     Yükleniyor...
                   </td>
                 </tr>
               )}
               {!loading && invoices.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400 text-sm">
+                  <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">
                     {hasActiveSearch
                       ? 'Arama kriterine uygun fatura bulunamadı.'
                       : 'Kayıt bulunamadı.'}
@@ -483,11 +298,21 @@ export default function Invoices({
                 invoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-slate-50/60">
                     <td className="px-4 py-3 text-sm font-semibold text-slate-900">
-                      {inv.invoiceNo}
+                      {inv.type === 'SATIS' ? (
+                        <button
+                          type="button"
+                          onClick={() => openEditor(inv)}
+                          className="text-left text-violet-700 hover:text-violet-900 hover:underline"
+                        >
+                          {inv.invoiceNo}
+                        </button>
+                      ) : (
+                        inv.invoiceNo
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex px-2.5 py-1 rounded-md text-xs font-semibold ring-1 ring-inset ${invoiceTypeStyles(inv.type)}`}
+                        className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${invoiceTypeStyles(inv.type)}`}
                       >
                         {invoiceTypeLabel(inv.type)}
                       </span>
@@ -509,14 +334,16 @@ export default function Invoices({
                       {formatDate(inv.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openDetail(inv)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-violet-600 hover:bg-violet-50"
-                        title="Detay"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
+                      {inv.type === 'SATIS' && (
+                        <button
+                          type="button"
+                          onClick={() => openEditor(inv)}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
+                          title="Düzenle"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -524,360 +351,6 @@ export default function Invoices({
           </table>
         </div>
       </section>
-
-      {(detail || detailLoading) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-slate-900/60"
-            onClick={() => !detailLoading && setDetail(null)}
-          />
-          <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl">
-            {detailLoading && !detail ? (
-              <p className="p-8 text-center text-slate-400">Yükleniyor...</p>
-            ) : detail ? (
-              <>
-                <div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-4">
-                  <div>
-                    <h3 className="font-semibold text-slate-900">{detail.invoiceNo}</h3>
-                    <p className="text-xs text-slate-500">
-                      {invoiceTypeLabel(detail.type)} · {detail.customer.name}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {!editing && detail.isPreOrder && detail.type === 'SATIS' && (
-                      <button
-                        type="button"
-                        onClick={handleFulfill}
-                        disabled={fulfilling}
-                        className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-50"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                        {fulfilling ? 'Tamamlanıyor...' : 'Stok Düş (Tamamla)'}
-                      </button>
-                    )}
-                    {!editing && (
-                      <button
-                        type="button"
-                        onClick={() => setEditing(true)}
-                        className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-violet-600 hover:bg-violet-50"
-                      >
-                        <Pencil className="w-4 h-4" />
-                        Düzenle
-                      </button>
-                    )}
-                    <button type="button" onClick={() => setDetail(null)}>
-                      <X className="w-5 h-5 text-slate-400" />
-                    </button>
-                  </div>
-                </div>
-
-                {editing ? (
-                  <form onSubmit={handleSave} className="p-5 space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="relative sm:col-span-2">
-                        <label className="text-xs font-medium text-slate-600">Müşteri</label>
-                        <input
-                          type="text"
-                          value={form.customerSearch}
-                          onChange={(e) => {
-                            setForm((f) => ({ ...f, customerSearch: e.target.value }));
-                            setCustomerDropdownOpen(true);
-                          }}
-                          onFocus={() => setCustomerDropdownOpen(true)}
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                          autoComplete="off"
-                        />
-                        {customerDropdownOpen && form.customerSearch.trim() && (
-                          <ul className="absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white border rounded-lg shadow-lg divide-y">
-                            {customerSearchLoading && (
-                              <li className="px-3 py-2 text-xs text-slate-400">Aranıyor...</li>
-                            )}
-                            {!customerSearchLoading &&
-                              customerResults.map((customer) => (
-                                <li
-                                  key={customer.id}
-                                  onMouseDown={() => {
-                                    setSelectedCustomer(customer);
-                                    setForm((f) => ({
-                                      ...f,
-                                      customerSearch: `${customer.code} — ${customer.name}`,
-                                    }));
-                                    setCustomerDropdownOpen(false);
-                                  }}
-                                  className="px-3 py-2 text-sm cursor-pointer hover:bg-violet-50"
-                                >
-                                  {customer.code} — {customer.name}
-                                </li>
-                              ))}
-                          </ul>
-                        )}
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Fatura Tarihi</label>
-                        <input
-                          type="date"
-                          value={form.invoiceDate}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, invoiceDate: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Vade Tarihi</label>
-                        <input
-                          type="date"
-                          value={form.dueDate}
-                          onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Ödeme</label>
-                        <input
-                          value={form.paymentMethod}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, paymentMethod: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Ödeme Tipi</label>
-                        <input
-                          value={form.paymentType}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, paymentType: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Döviz Kuru</label>
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={form.exchangeRate}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, exchangeRate: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Personel</label>
-                        <input
-                          value={form.processedBy}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, processedBy: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Teslimat</label>
-                        <input
-                          value={form.deliveryType}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, deliveryType: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Kargo Firması</label>
-                        <input
-                          value={form.shippingCompany}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, shippingCompany: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Takip No</label>
-                        <input
-                          value={form.trackingNumber}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, trackingNumber: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </div>
-                      {detail.type === 'SATIS' && (
-                        <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
-                          <input
-                            type="checkbox"
-                            checked={form.isPreOrder}
-                            onChange={(e) =>
-                              setForm((f) => ({ ...f, isPreOrder: e.target.checked }))
-                            }
-                            className="rounded border-slate-300 text-violet-600"
-                          />
-                          Ön sipariş (stok düşümü yok)
-                        </label>
-                      )}
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-slate-600">Açıklama</label>
-                      <textarea
-                        rows={2}
-                        value={form.orderNotes}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, orderNotes: e.target.value }))
-                        }
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-slate-500 mb-2">
-                        Fatura Kalemleri
-                      </p>
-                      <div className="space-y-2">
-                        {form.items.map((line) => (
-                          <div
-                            key={line.id}
-                            className="rounded-lg border border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-4 gap-2"
-                          >
-                            <div className="sm:col-span-4">
-                              <p className="text-sm font-medium">{line.product.name}</p>
-                              <p className="text-xs text-slate-400">{line.product.sku}</p>
-                            </div>
-                            <div>
-                              <label className="text-[0.625rem] text-slate-500">Adet</label>
-                              <input
-                                type="number"
-                                min="0.01"
-                                step="any"
-                                value={line.quantity}
-                                onChange={(e) => updateLine(line.id, 'quantity', e.target.value)}
-                                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[0.625rem] text-slate-500">Birim Fiyat (TL)</label>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={line.unitPrice}
-                                onChange={(e) => updateLine(line.id, 'unitPrice', e.target.value)}
-                                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[0.625rem] text-slate-500">İndirim %</label>
-                              <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="0.01"
-                                value={line.discountPercent}
-                                onChange={(e) =>
-                                  updateLine(line.id, 'discountPercent', e.target.value)
-                                }
-                                className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setEditing(false)}
-                        className="rounded-lg px-4 py-2 text-sm text-slate-600"
-                      >
-                        İptal
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={submitting}
-                        className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                      >
-                        <Save className="w-4 h-4" />
-                        Kaydet
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  <div className="p-5 space-y-4">
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <span className="text-slate-500">Tutar</span>
-                        <p className="font-semibold">{formatMoney(detail.totalAmountTl)}</p>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Tarih</span>
-                        <p>{formatDate(detail.createdAt)}</p>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Ödeme</span>
-                        <p>{detail.paymentMethod}</p>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Şube</span>
-                        <p>{detail.branch.name}</p>
-                      </div>
-                    </div>
-                    {detail.originalInvoice && (
-                      <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
-                        Kaynak fatura: <strong>{detail.originalInvoice.invoiceNo}</strong>
-                      </p>
-                    )}
-                    {detail.orderNotes && (
-                      <p className="text-sm text-slate-600 bg-slate-50 rounded-lg px-3 py-2">
-                        {detail.orderNotes}
-                      </p>
-                    )}
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-100 text-left text-xs text-slate-500 uppercase">
-                          <th className="py-2">Ürün</th>
-                          <th className="py-2 text-right">Adet</th>
-                          <th className="py-2 text-right">Fiyat</th>
-                          <th className="py-2 text-right">Toplam</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.items.map((line) => (
-                          <tr key={line.id} className="border-b border-slate-50">
-                            <td className="py-2">
-                              <p className="font-medium">{line.product.name}</p>
-                              <p className="text-xs text-slate-400">{line.product.sku}</p>
-                            </td>
-                            <td className="py-2 text-right">
-                              {line.quantity}
-                              {line.returnableQty != null && detail.type === 'SATIS' && (
-                                <span className="block text-[0.625rem] text-emerald-600">
-                                  iade: {line.returnableQty}
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-2 text-right">{formatMoney(line.unitPrice)}</td>
-                            <td className="py-2 text-right font-medium">
-                              {formatMoney(line.totalPrice)}
-                              {(line.discountPercent ?? 0) > 0 && (
-                                <span className="block text-[0.625rem] text-amber-600">
-                                  %{line.discountPercent} ind.
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
-            ) : null}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

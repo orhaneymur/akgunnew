@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.1` · `since1907/akgun-frontend:v1.8.6`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.1` · `since1907/akgun-frontend:v1.8.7`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -120,7 +120,17 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 - Anlık **borç / alacak** takibi, tahsilat / ödeme kayıtları
 - Müşteri bakiye raporu ve **costPrice** bazlı **kâr-zarar analizi**
 
-### Fatura Listesi
+### Fatura Listesi ve Ön Sipariş Düzenleme (v1.8.7)
+
+- **Fatura Listesi** ve **Ön Siparişler** ekranlarında satış faturaları için eski popup kaldırıldı
+- **Fatura numarasına** veya satırdaki **göz ikonuna** tıklayınca aynı sayfada **Satış Yap** ekranı açılır (yeni sekme yok)
+- Müşteri bilgileri, ödeme, teslimat, vade ve **tüm ürün kalemleri** (adet, fiyat $, indirim) API'den dolu gelir
+- **DEĞİŞİKLİKLERİ KAYDET** ile tek adımda `PUT /api/sales/invoices/:id` kaydı
+- Ön siparişlerde ek olarak **Siparişi Tamamla** (`POST .../fulfill`) butonu görünür
+- Düzenleme modunda yeni ürün ekleme / satır silme kapalıdır (mevcut kalemlerin adet ve fiyatı değiştirilebilir)
+- Alış ve iade faturaları bu ekrandan düzenlenemez (bilgi mesajı gösterilir)
+
+### Fatura Listesi (genel)
 - Tek ekranda **Tümü / Satış / Alış / İade** filtresi
 - **Fatura Ara** paneli — müşteri adı/kodu ve ürün (stok kodu, barkod, ad) ile sunucu tarafı arama (v1.7.4)
 - Ürün araması geçmiş faturaların kalemlerinde arar; müşteri araması o cariye ait tüm faturaları listeler
@@ -326,6 +336,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.8.4 | Nginx/Ingress 600s timeout; Excel ve uzun API isteklerinde 504 düzeltmesi |
 | v1.8.5 | Ingress apply kaldırıldı (Rancher uyumu); yalnızca timeout annotation patch |
 | v1.8.6 | Kompakt UI — global %30 ölçek (font, buton, boşluk oranları korunarak) |
+| v1.8.7 | Fatura/ön sipariş düzenleme — popup kaldırıldı; Satış Yap ekranı ile aynı sayfada tam düzenleme ve tek kaydet |
 ---
 
 ## Ingress / Domain (Rancher)

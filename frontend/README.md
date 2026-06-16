@@ -28,4 +28,8 @@ Tarayıcı: `http://localhost:5173` · Giriş: `akgunteknik` / `123456`
 npm run build
 ```
 
-Docker imajı: `since1907/akgun-frontend:v1.4` (Nginx ile statik serve)
+Docker imajı: `since1907/akgun-frontend:v1.8.7` (Nginx ile statik serve)
+
+## Fatura / ön sipariş düzenleme (v1.8.7)
+
+`Invoices.tsx` listesinde fatura no veya göz ikonuna tıklanınca `SalesCreate` düzenleme modu aynı sayfada açılır (`editInvoiceId` prop). Popup ve ayrı sekme yoktur.

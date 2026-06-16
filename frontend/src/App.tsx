@@ -241,6 +241,7 @@ function App() {
             refreshKey={dashboardRefreshKey}
             initialFilter={invoiceFilter}
             preOrderOnly={preOrderOnly}
+            f2Trigger={f2Trigger}
             title={preOrderOnly ? 'Ön Siparişler' : 'Fatura Listesi'}
             description={
               preOrderOnly
@@ -248,6 +249,7 @@ function App() {
                 : 'Satış, alış ve iade faturaları — görüntüle ve düzenle'
             }
             onNotify={showNotification}
+            onDataChange={handleDataChange}
           />
         );
       case 'pre-orders':
@@ -256,10 +258,12 @@ function App() {
             key={`pre-orders-${dashboardRefreshKey}`}
             refreshKey={dashboardRefreshKey}
             preOrderOnly
+            f2Trigger={f2Trigger}
             initialFilter="SATIS"
             title="Ön Siparişler"
             description="Stok düşümü yapılmamış bekleyen satış siparişleri"
             onNotify={showNotification}
+            onDataChange={handleDataChange}
           />
         );
       case 'stock-list':

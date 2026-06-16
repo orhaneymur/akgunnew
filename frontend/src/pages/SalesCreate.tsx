@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { Printer, Save, Search, ShoppingCart, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Printer, Save, Search, ShoppingCart, X } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
 import F2ProductList, {
   resolveSalesUnitPriceUsd,
@@ -55,6 +55,7 @@ type Product = {
 
 type CartItem = {
   rowId: string;
+  sourceInvoiceItemId?: number;
   product: Product;
   quantity: number;
   unitPriceUsd: number;
@@ -75,8 +76,11 @@ type DeliveryType = 'Mağazadan Teslim' | 'Kargo';
 
 type SalesCreateProps = {
   f2Trigger?: number;
+  editInvoiceId?: number | null;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
+  onCancelEdit?: () => void;
+  onSaved?: () => void;
 };
 
 function calcLineTotalUsd(
@@ -112,7 +116,15 @@ function pickCustomerFromSearch(query: string, results: Customer[]): Customer | 
   );
 }
 
-export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: SalesCreateProps) {
+export default function SalesCreate({
+  f2Trigger = 0,
+  editInvoiceId = null,
+  onNotify,
+  onDataChange,
+  onCancelEdit,
+  onSaved,
+}: SalesCreateProps) {
+  const isEditMode = editInvoiceId != null && editInvoiceId > 0;
   const [initData, setInitData] = useState<InitData>({
     branches: [],
     safes: [],
@@ -141,6 +153,9 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
   const [processedBy, setProcessedBy] = useState('');
   const [f2Modal, setF2Modal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [fulfilling, setFulfilling] = useState(false);
+  const [displayInvoiceNo, setDisplayInvoiceNo] = useState('');
   const showCosts = useHoldKeyReveal('F8');
 
   const customerSearchRef = useRef<HTMLInputElement>(null);
@@ -225,14 +240,14 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
           if (branchSafe) setSelectedSafe(branchSafe.id);
         }
 
-        if (personnels.length > 0 && !processedBy) {
+        if (personnels.length > 0 && !processedBy && !isEditMode) {
           setProcessedBy(personnels[0].name);
         }
       }
     } catch {
       notify('error', 'Başlangıç verileri yüklenemedi. Backend çalışıyor mu?');
     }
-  }, [notify, processedBy]);
+  }, [notify, processedBy, isEditMode]);
 
   useEffect(() => {
     loadInitData();
@@ -282,6 +297,118 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
   }, [customerSearch, customerDropdownOpen]);
 
   useEffect(() => {
+    if (!isEditMode || !editInvoiceId) return;
+
+    let cancelled = false;
+    const loadInvoice = async () => {
+      setEditLoading(true);
+      try {
+        const invRes = await axios.get<{
+          success: boolean;
+          data: {
+            id: number;
+            invoiceNo: string;
+            type: string;
+            isPreOrder: boolean;
+            paymentMethod: string;
+            paymentType: string | null;
+            processedBy: string | null;
+            orderNotes: string | null;
+            deliveryType: string;
+            dueDate: string | null;
+            exchangeRate: number;
+            createdAt: string;
+            customer: { id: number; code: string; name: string; balance?: number };
+            branch: { id: number };
+            safe?: { id: number } | null;
+            items: Array<{
+              id: number;
+              quantity: number;
+              unitPrice: number;
+              discountPercent: number;
+              product: Product;
+            }>;
+          };
+        }>(`${API_BASE}/api/sales/invoices/${editInvoiceId}`);
+
+        if (!invRes.data.success || cancelled) return;
+        const data = invRes.data.data;
+
+        if (data.type !== 'SATIS') {
+          notify('error', 'Yalnızca satış faturaları düzenlenebilir.');
+          onCancelEdit?.();
+          return;
+        }
+
+        let customer: Customer;
+        try {
+          const custRes = await axios.get<{ success: boolean; data: Customer }>(
+            `${API_BASE}/api/customers/${data.customer.id}`
+          );
+          customer = custRes.data.success
+            ? custRes.data.data
+            : ({ ...data.customer, creditLimit: 0, balance: data.customer.balance ?? 0 } as Customer);
+        } catch {
+          customer = {
+            ...data.customer,
+            creditLimit: 0,
+            balance: data.customer.balance ?? 0,
+          } as Customer;
+        }
+
+        const rate = data.exchangeRate > 0 ? data.exchangeRate : 1;
+        setDisplayInvoiceNo(data.invoiceNo);
+        setExchangeRate(rate);
+        setSelectedCustomer(customer);
+        setCustomerSearch(`${customer.code} — ${customer.name}`);
+        setSelectedBranch(data.branch.id);
+        if (data.safe?.id) setSelectedSafe(data.safe.id);
+
+        const pm = data.paymentMethod as PaymentMethod;
+        if (['Nakit', 'EFT/Havale', 'Kart', 'Cari'].includes(pm)) {
+          setPaymentMethod(pm);
+        }
+        if (data.paymentType === 'Peşin' || data.paymentType === 'Vadeli') {
+          setPaymentType(data.paymentType);
+        }
+        setProcessedBy(data.processedBy ?? '');
+        setOrderNotes(data.orderNotes ?? '');
+        const dt = data.deliveryType as DeliveryType;
+        if (dt === 'Mağazadan Teslim' || dt === 'Kargo') {
+          setDeliveryType(dt);
+        }
+        setDueDate(data.dueDate ? data.dueDate.slice(0, 10) : '');
+        setInvoiceDate(data.createdAt.slice(0, 10));
+        setIsPreOrder(Boolean(data.isPreOrder));
+        setCart(
+          data.items.map((line) => ({
+            rowId: `inv-${line.id}`,
+            sourceInvoiceItemId: line.id,
+            product: line.product,
+            quantity: line.quantity,
+            unitPriceUsd: roundPrice(line.unitPrice / rate),
+            discountPercent: line.discountPercent ?? 0,
+            costUsd: productCostUsd(line.product, rate),
+          }))
+        );
+      } catch {
+        if (!cancelled) {
+          notify('error', 'Fatura yüklenemedi.');
+          onCancelEdit?.();
+        }
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    };
+
+    loadInvoice();
+    return () => {
+      cancelled = true;
+    };
+  }, [editInvoiceId, isEditMode, notify, onCancelEdit]);
+
+  useEffect(() => {
+    if (isEditMode) return;
     if (!selectedCustomer || cart.length === 0) return;
 
     const refreshCartPrices = async () => {
@@ -378,6 +505,10 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
 
   const addProductToCart = useCallback(
     (product: F2Product | Product) => {
+      if (isEditMode) {
+        notify('error', 'Düzenlemede yeni ürün eklenemez; mevcut kalemleri güncelleyin.');
+        return;
+      }
       const { unitPriceUsd, costUsd } = resolveProductUsd(product);
 
       setCart((prev) => {
@@ -408,7 +539,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
 
       closeF2Modal();
     },
-    [closeF2Modal, resolveProductUsd]
+    [closeF2Modal, resolveProductUsd, isEditMode, notify]
   );
 
   const handleModalKeyDown = useF2KeyboardNav({
@@ -435,7 +566,31 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
   };
 
   const removeCartItem = (rowId: string) => {
+    if (isEditMode) {
+      notify('error', 'Düzenlemede kalem silinemez; adet veya fiyatı güncelleyin.');
+      return;
+    }
     setCart((prev) => prev.filter((item) => item.rowId !== rowId));
+  };
+
+  const handleFulfill = async () => {
+    if (!editInvoiceId || !isPreOrder) return;
+    setFulfilling(true);
+    try {
+      await axios.post(`${API_BASE}/api/sales/invoices/${editInvoiceId}/fulfill`);
+      notify('success', 'Ön sipariş tamamlandı, stok düşüldü.');
+      setIsPreOrder(false);
+      onDataChange?.();
+      onSaved?.();
+    } catch (error) {
+      const message =
+        axios.isAxiosError(error) && error.response?.data?.message
+          ? String(error.response.data.message)
+          : 'Ön sipariş tamamlanamadı.';
+      notify('error', message);
+    } finally {
+      setFulfilling(false);
+    }
   };
 
   const selectCustomer = (customer: Customer) => {
@@ -488,6 +643,40 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
 
     setSubmitting(true);
     try {
+      if (isEditMode && editInvoiceId) {
+        const editItems = cart.filter((item) => item.sourceInvoiceItemId != null);
+        if (editItems.length === 0) {
+          notify('error', 'Kaydedilecek fatura kalemi yok.');
+          return;
+        }
+
+        await axios.put(`${API_BASE}/api/sales/invoices/${editInvoiceId}`, {
+          customerId: customer.id,
+          paymentMethod,
+          paymentType,
+          processedBy: processedBy || null,
+          orderNotes: orderNotes || undefined,
+          deliveryType,
+          dueDate: dueDate || null,
+          invoiceDate,
+          exchangeRate: Number(exchangeRate),
+          isPreOrder,
+          items: editItems.map((item) => ({
+            id: item.sourceInvoiceItemId!,
+            quantity: item.quantity,
+            unitPrice: roundPrice(
+              item.unitPriceUsd * (exchangeRate > 0 ? exchangeRate : 1)
+            ),
+            discountPercent: item.discountPercent,
+          })),
+        });
+
+        notify('success', `Fatura güncellendi: ${displayInvoiceNo}`);
+        onDataChange?.();
+        onSaved?.();
+        return;
+      }
+
       const response = await axios.post(`${API_BASE}/api/sales/store`, {
         customerId: customer.id,
         branchId,
@@ -548,16 +737,42 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
     'w-full rounded-lg border border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm px-3 py-2 bg-white';
   const labelClass = 'block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1';
 
+  if (editLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-slate-500">
+        Fatura yükleniyor...
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 print:space-y-2">
-      <div className="flex items-center gap-3 mb-2 print:hidden">
-        <div className="p-2.5 rounded-xl bg-emerald-600 text-white">
+      <div className="mb-2 flex items-center gap-3 print:hidden">
+        {isEditMode && onCancelEdit && (
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50"
+            title="Listeye dön"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+        )}
+        <div className={`p-2.5 rounded-xl text-white ${isEditMode ? 'bg-violet-600' : 'bg-emerald-600'}`}>
           <ShoppingCart className="w-5 h-5" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Hızlı Satış Yap</h1>
+          <h1 className="text-xl font-bold text-slate-900">
+            {isEditMode
+              ? isPreOrder
+                ? 'Ön Sipariş Düzenle'
+                : 'Satış Faturası Düzenle'
+              : 'Hızlı Satış Yap'}
+          </h1>
           <p className="text-sm text-slate-500">
-            Esnaf fatura tezgâhı · F2 stok ara · Fiyatlar $ (USD) · F8 maliyet
+            {isEditMode
+              ? `${displayInvoiceNo} · müşteri ve kalemler dolu gelir · Kaydet ile güncelle`
+              : 'Esnaf fatura tezgâhı · F2 stok ara · Fiyatlar $ (USD) · F8 maliyet'}
           </p>
         </div>
       </div>
@@ -574,7 +789,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
             <input
               type="text"
               readOnly
-              value={initData.nextInvoiceNo || 'SF...'}
+              value={isEditMode ? displayInvoiceNo : initData.nextInvoiceNo || 'SF...'}
               className={`${inputClass} bg-slate-50 font-mono font-bold text-indigo-700`}
             />
           </div>
@@ -885,13 +1100,15 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
                         {formatUsd(lineTotal)}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        <button
-                          type="button"
-                          onClick={() => removeCartItem(item.rowId)}
-                          className="text-red-500 hover:text-red-700 p-1 print:hidden"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                        {!isEditMode && (
+                          <button
+                            type="button"
+                            onClick={() => removeCartItem(item.rowId)}
+                            className="text-red-500 hover:text-red-700 p-1 print:hidden"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -902,11 +1119,14 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
                       colSpan={showCosts ? 8 : 7}
                       className="px-4 py-16 text-center text-slate-400"
                     >
-                      Sepet boş.{' '}
-                      <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-xs">
-                        F2
-                      </kbd>{' '}
-                      ile ürün ekleyin.
+                      Sepet boş.
+                      {!isEditMode && (
+                        <>
+                          {' '}
+                          <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-xs">F2</kbd> ile
+                          ürün ekleyin.
+                        </>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -1002,6 +1222,18 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
             </select>
           </div>
 
+          {isEditMode && isPreOrder && (
+            <button
+              type="button"
+              onClick={handleFulfill}
+              disabled={fulfilling || submitting}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-amber-400 bg-amber-50 py-3 font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50 print:hidden"
+            >
+              <CheckCircle className="w-5 h-5" />
+              {fulfilling ? 'Tamamlanıyor...' : 'Stok Düş (Ön Siparişi Tamamla)'}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleSubmit}
@@ -1009,7 +1241,11 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
             className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 disabled:from-slate-400 disabled:to-slate-400 text-white font-black uppercase tracking-wide py-4 px-4 sm:py-5 sm:px-6 rounded-2xl shadow-xl shadow-emerald-500/40 transition-all text-sm sm:text-base border-2 border-emerald-400 print:hidden"
           >
             <Save className="w-6 h-6" />
-            {submitting ? 'Kaydediliyor...' : 'KAYDET'}
+            {submitting
+              ? 'Kaydediliyor...'
+              : isEditMode
+                ? 'DEĞİŞİKLİKLERİ KAYDET'
+                : 'KAYDET'}
           </button>
         </aside>
       </div>
