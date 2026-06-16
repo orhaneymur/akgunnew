@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.3` · `since1907/akgun-frontend:v1.8.10`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.3` · `since1907/akgun-frontend:v1.8.11`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -90,6 +90,7 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 - Sepet satırları: `Fiyat ($)` düzenlenebilir; **maliyet sütunu varsayılan olarak gizlidir**
 - **F8 basılı tutulduğunda** maliyet ($) sütunu görünür; tuş bırakılınca veya pencere odaktan çıkınca tekrar gizlenir (yalnızca `keydown`/`keyup` dinleyicisi, ek API yükü yok)
 - Satır indirimi: `Toplam = (Adet × Fiyat) × (1 − Ind.% / 100)`
+- Sepet satırlarında **← → ↑ ↓** ile İndirim / Adet / Fiyat alanları arasında gezinme (v1.8.11; düzenleme modu dahil)
 - **Net Toplam ($)** kırmızı büyük puntoda; **TL Toplam** = `Net Toplam ($) × Döviz Kuru`
 - Üst bardaki kur satış panelinde düzenlenebilir input olarak kullanılır
 - Müşteri değişince **Son Satın Aldığı Fiyat** otomatik USD'ye çevrilerek satıra yazılır
@@ -353,6 +354,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.8.8 | Satış iade — fatura seçimi kaldırıldı; müşteri+ürün, 6 ay kontrolü, son fiyat ve fatura no ile sepet |
 | v1.8.9 | Fatura düzenlemede F2 ile ürün ekleme ve satır silme; stok ve cari otomatik güncellenir |
 | v1.8.10 | Ana sayfa Son Faturalar — tıklayınca fatura düzenleme (Satış Yap ekranı, aynı sayfa) |
+| v1.8.11 | Satış sepetinde yön tuşları ile İndirim ↔ Adet ↔ Fiyat alanları arası klavye gezinme |
 ---
 
 ## Ingress / Domain (Rancher)

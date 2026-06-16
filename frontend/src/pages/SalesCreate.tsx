@@ -8,6 +8,7 @@ import F2ProductList, {
 import { useF2ProductSearch, type F2Product } from '../hooks/useF2ProductSearch';
 import { useF2KeyboardNav } from '../hooks/useF2KeyboardNav';
 import { useHoldKeyReveal } from '../hooks/useHoldKeyReveal';
+import { useCartGridKeyboardNav } from '../hooks/useCartGridKeyboardNav';
 import {
   API_BASE,
   DEFAULT_USD,
@@ -161,9 +162,12 @@ export default function SalesCreate({
   const showCosts = useHoldKeyReveal('F8');
 
   const customerSearchRef = useRef<HTMLInputElement>(null);
-  const quantityInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const customerDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAddedRowId = useRef<string | null>(null);
+
+  const getCartRowIds = useCallback(() => cart.map((item) => item.rowId), [cart]);
+  const { setRef: setCartInputRef, focusField: focusCartField, onKeyDown: onCartFieldKeyDown } =
+    useCartGridKeyboardNav(getCartRowIds);
 
   const f2 = useF2ProductSearch({
     open: f2Modal,
@@ -474,12 +478,10 @@ export default function SalesCreate({
 
   useEffect(() => {
     if (lastAddedRowId.current) {
-      const ref = quantityInputRefs.current[lastAddedRowId.current];
-      ref?.focus();
-      ref?.select();
+      focusCartField(lastAddedRowId.current, 'quantity');
       lastAddedRowId.current = null;
     }
-  }, [cart]);
+  }, [cart, focusCartField]);
 
   const openF2Modal = useCallback(() => {
     setF2Modal(true);
@@ -1020,11 +1022,9 @@ export default function SalesCreate({
             <ShoppingCart className="w-5 h-5 text-indigo-600" />
             <h2 className="font-semibold text-slate-800">Akıllı Sepet</h2>
             <span className="text-sm text-slate-500">({cart.length} kalem)</span>
-            {!showCosts && (
-              <span className="text-[0.625rem] text-slate-400 hidden sm:inline">
-                Maliyet: F8 basılı tut
-              </span>
-            )}
+            <span className="text-[0.625rem] text-slate-400 hidden sm:inline">
+              Sepet: ←→↑↓ · Maliyet: F8 basılı tut
+            </span>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -1071,6 +1071,7 @@ export default function SalesCreate({
                       </td>
                       <td className="px-3 py-2 text-right">
                         <input
+                          ref={setCartInputRef(item.rowId, 'discountPercent')}
                           type="number"
                           min="0"
                           max="100"
@@ -1083,14 +1084,15 @@ export default function SalesCreate({
                               Number(e.target.value)
                             )
                           }
+                          onKeyDown={(e) =>
+                            onCartFieldKeyDown(e, item.rowId, 'discountPercent')
+                          }
                           className="w-16 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500"
                         />
                       </td>
                       <td className="px-3 py-2 text-right">
                         <input
-                          ref={(el) => {
-                            quantityInputRefs.current[item.rowId] = el;
-                          }}
+                          ref={setCartInputRef(item.rowId, 'quantity')}
                           type="number"
                           min="0.01"
                           step="0.01"
@@ -1102,6 +1104,7 @@ export default function SalesCreate({
                               Number(e.target.value)
                             )
                           }
+                          onKeyDown={(e) => onCartFieldKeyDown(e, item.rowId, 'quantity')}
                           className="w-16 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500"
                         />
                       </td>
@@ -1112,6 +1115,7 @@ export default function SalesCreate({
                       )}
                       <td className="px-3 py-2 text-right">
                         <input
+                          ref={setCartInputRef(item.rowId, 'unitPriceUsd')}
                           type="number"
                           min="0"
                           step="0.01"
@@ -1122,6 +1126,9 @@ export default function SalesCreate({
                               'unitPriceUsd',
                               Number(e.target.value)
                             )
+                          }
+                          onKeyDown={(e) =>
+                            onCartFieldKeyDown(e, item.rowId, 'unitPriceUsd')
                           }
                           className="w-20 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500 tabular-nums"
                         />
