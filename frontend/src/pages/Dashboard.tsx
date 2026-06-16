@@ -46,6 +46,7 @@ type DashboardProps = {
   onNavigate?: NavigateFn;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
+  onF2ContextActive?: (active: boolean) => void;
 };
 
 type RecentPayment = {
@@ -69,6 +70,7 @@ export default function Dashboard({
   onNavigate,
   onNotify,
   onDataChange,
+  onF2ContextActive,
 }: DashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -158,6 +160,7 @@ export default function Dashboard({
         onDataChange={onDataChange}
         onCancelEdit={closeEditor}
         onSaved={handleSaved}
+        onF2ContextActive={onF2ContextActive}
       />
     );
   }

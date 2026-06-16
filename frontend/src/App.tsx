@@ -67,6 +67,7 @@ function App() {
       return menus;
     });
   const [f2Trigger, setF2Trigger] = useState(0);
+  const [embeddedSalesEditorOpen, setEmbeddedSalesEditorOpen] = useState(false);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const [notification, setNotification] = useState<{
     type: 'success' | 'error';
@@ -173,7 +174,7 @@ function App() {
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'F2') {
         event.preventDefault();
-        if (!F2_ENABLED_PAGES.includes(activePage)) {
+        if (!F2_ENABLED_PAGES.includes(activePage) && !embeddedSalesEditorOpen) {
           showNotification(
             'error',
             'F2 yalnızca Satış, Alış Faturası, Satış İade ve Tahsilat/Ödeme ekranlarında çalışır.'
@@ -186,7 +187,7 @@ function App() {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [isLoggedIn, activePage, showNotification]);
+  }, [isLoggedIn, activePage, embeddedSalesEditorOpen, showNotification]);
 
   useEffect(() => {
     if (!mobileNavOpen) {
@@ -214,6 +215,7 @@ function App() {
             onNavigate={navigateTo}
             onNotify={showNotification}
             onDataChange={handleDataChange}
+            onF2ContextActive={setEmbeddedSalesEditorOpen}
           />
         );
       case 'sales':
@@ -258,6 +260,7 @@ function App() {
             }
             onNotify={showNotification}
             onDataChange={handleDataChange}
+            onF2ContextActive={setEmbeddedSalesEditorOpen}
           />
         );
       case 'pre-orders':
@@ -272,6 +275,7 @@ function App() {
             description="Stok düşümü yapılmamış bekleyen satış siparişleri"
             onNotify={showNotification}
             onDataChange={handleDataChange}
+            onF2ContextActive={setEmbeddedSalesEditorOpen}
           />
         );
       case 'stock-list':

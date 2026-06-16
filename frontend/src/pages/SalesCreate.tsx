@@ -83,6 +83,8 @@ type SalesCreateProps = {
   onDataChange?: () => void;
   onCancelEdit?: () => void;
   onSaved?: () => void;
+  /** Fatura düzenleme modunda F2'nin App seviyesinde tanınması için */
+  onF2ContextActive?: (active: boolean) => void;
 };
 
 function calcLineTotalUsd(
@@ -125,8 +127,15 @@ export default function SalesCreate({
   onDataChange,
   onCancelEdit,
   onSaved,
+  onF2ContextActive,
 }: SalesCreateProps) {
   const isEditMode = editInvoiceId != null && editInvoiceId > 0;
+
+  useEffect(() => {
+    if (!isEditMode || !onF2ContextActive) return;
+    onF2ContextActive(true);
+    return () => onF2ContextActive(false);
+  }, [isEditMode, onF2ContextActive]);
   const [initData, setInitData] = useState<InitData>({
     branches: [],
     safes: [],

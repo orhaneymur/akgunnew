@@ -34,6 +34,7 @@ type InvoicesProps = {
   description?: string;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
+  onF2ContextActive?: (active: boolean) => void;
 };
 
 export default function Invoices({
@@ -45,6 +46,7 @@ export default function Invoices({
   description = 'Satış, alış ve iade faturaları — görüntüle ve düzenle',
   onNotify,
   onDataChange,
+  onF2ContextActive,
 }: InvoicesProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [filter, setFilter] = useState<FilterType>(initialFilter);
@@ -147,6 +149,7 @@ export default function Invoices({
         onDataChange={onDataChange}
         onCancelEdit={closeEditor}
         onSaved={handleSaved}
+        onF2ContextActive={onF2ContextActive}
       />
     );
   }
