@@ -56,6 +56,7 @@ type Product = {
 type CartItem = {
   rowId: string;
   sourceInvoiceItemId?: number;
+  returnedQty?: number;
   product: Product;
   quantity: number;
   unitPriceUsd: number;
@@ -156,6 +157,7 @@ export default function SalesCreate({
   const [editLoading, setEditLoading] = useState(false);
   const [fulfilling, setFulfilling] = useState(false);
   const [displayInvoiceNo, setDisplayInvoiceNo] = useState('');
+  const [removedItemIds, setRemovedItemIds] = useState<number[]>([]);
   const showCosts = useHoldKeyReveal('F8');
 
   const customerSearchRef = useRef<HTMLInputElement>(null);
@@ -326,6 +328,7 @@ export default function SalesCreate({
               quantity: number;
               unitPrice: number;
               discountPercent: number;
+              returnedQty?: number;
               product: Product;
             }>;
           };
@@ -380,10 +383,12 @@ export default function SalesCreate({
         setDueDate(data.dueDate ? data.dueDate.slice(0, 10) : '');
         setInvoiceDate(data.createdAt.slice(0, 10));
         setIsPreOrder(Boolean(data.isPreOrder));
+        setRemovedItemIds([]);
         setCart(
           data.items.map((line) => ({
             rowId: `inv-${line.id}`,
             sourceInvoiceItemId: line.id,
+            returnedQty: line.returnedQty ?? 0,
             product: line.product,
             quantity: line.quantity,
             unitPriceUsd: roundPrice(line.unitPrice / rate),
@@ -505,18 +510,26 @@ export default function SalesCreate({
 
   const addProductToCart = useCallback(
     (product: F2Product | Product) => {
-      if (isEditMode) {
-        notify('error', 'Düzenlemede yeni ürün eklenemez; mevcut kalemleri güncelleyin.');
-        return;
-      }
       const { unitPriceUsd, costUsd } = resolveProductUsd(product);
 
       setCart((prev) => {
-        const existing = prev.find((item) => item.product.id === product.id);
-        if (existing) {
-          lastAddedRowId.current = existing.rowId;
+        const existingNewLine = prev.find(
+          (item) => item.product.id === product.id && !item.sourceInvoiceItemId
+        );
+        if (existingNewLine) {
+          lastAddedRowId.current = existingNewLine.rowId;
           return prev.map((item) =>
-            item.product.id === product.id
+            item.rowId === existingNewLine.rowId
+              ? { ...item, quantity: item.quantity + 1 }
+              : item
+          );
+        }
+
+        const existingLine = prev.find((item) => item.product.id === product.id);
+        if (existingLine && isEditMode) {
+          lastAddedRowId.current = existingLine.rowId;
+          return prev.map((item) =>
+            item.rowId === existingLine.rowId
               ? { ...item, quantity: item.quantity + 1 }
               : item
           );
@@ -539,7 +552,7 @@ export default function SalesCreate({
 
       closeF2Modal();
     },
-    [closeF2Modal, resolveProductUsd, isEditMode, notify]
+    [closeF2Modal, resolveProductUsd, isEditMode]
   );
 
   const handleModalKeyDown = useF2KeyboardNav({
@@ -566,9 +579,20 @@ export default function SalesCreate({
   };
 
   const removeCartItem = (rowId: string) => {
-    if (isEditMode) {
-      notify('error', 'Düzenlemede kalem silinemez; adet veya fiyatı güncelleyin.');
+    const row = cart.find((item) => item.rowId === rowId);
+    if (row?.sourceInvoiceItemId && (row.returnedQty ?? 0) > 0) {
+      notify(
+        'error',
+        `Bu satırda ${row.returnedQty} adet iade kaydı var; satır silinemez.`
+      );
       return;
+    }
+    if (row?.sourceInvoiceItemId) {
+      setRemovedItemIds((prev) =>
+        prev.includes(row.sourceInvoiceItemId!)
+          ? prev
+          : [...prev, row.sourceInvoiceItemId!]
+      );
     }
     setCart((prev) => prev.filter((item) => item.rowId !== rowId));
   };
@@ -644,11 +668,12 @@ export default function SalesCreate({
     setSubmitting(true);
     try {
       if (isEditMode && editInvoiceId) {
-        const editItems = cart.filter((item) => item.sourceInvoiceItemId != null);
-        if (editItems.length === 0) {
-          notify('error', 'Kaydedilecek fatura kalemi yok.');
+        if (cart.length === 0) {
+          notify('error', 'Sepette en az bir ürün olmalı.');
           return;
         }
+
+        const rate = exchangeRate > 0 ? exchangeRate : 1;
 
         await axios.put(`${API_BASE}/api/sales/invoices/${editInvoiceId}`, {
           customerId: customer.id,
@@ -661,14 +686,19 @@ export default function SalesCreate({
           invoiceDate,
           exchangeRate: Number(exchangeRate),
           isPreOrder,
-          items: editItems.map((item) => ({
-            id: item.sourceInvoiceItemId!,
-            quantity: item.quantity,
-            unitPrice: roundPrice(
-              item.unitPriceUsd * (exchangeRate > 0 ? exchangeRate : 1)
-            ),
-            discountPercent: item.discountPercent,
-          })),
+          ...(removedItemIds.length > 0 ? { removeItemIds: removedItemIds } : {}),
+          items: cart.map((item) => {
+            const unitPriceTl = roundPrice(item.unitPriceUsd * rate);
+            const payload = {
+              quantity: item.quantity,
+              unitPrice: unitPriceTl,
+              discountPercent: item.discountPercent,
+            };
+            if (item.sourceInvoiceItemId) {
+              return { id: item.sourceInvoiceItemId, ...payload };
+            }
+            return { productId: item.product.id, ...payload };
+          }),
         });
 
         notify('success', `Fatura güncellendi: ${displayInvoiceNo}`);
@@ -1100,15 +1130,19 @@ export default function SalesCreate({
                         {formatUsd(lineTotal)}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {!isEditMode && (
-                          <button
-                            type="button"
-                            onClick={() => removeCartItem(item.rowId)}
-                            className="text-red-500 hover:text-red-700 p-1 print:hidden"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeCartItem(item.rowId)}
+                          disabled={(item.returnedQty ?? 0) > 0}
+                          title={
+                            (item.returnedQty ?? 0) > 0
+                              ? 'İade kaydı olan satır silinemez'
+                              : 'Satırı kaldır'
+                          }
+                          className="text-red-500 hover:text-red-700 p-1 print:hidden disabled:cursor-not-allowed disabled:opacity-30"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </td>
                     </tr>
                   );
@@ -1119,14 +1153,9 @@ export default function SalesCreate({
                       colSpan={showCosts ? 8 : 7}
                       className="px-4 py-16 text-center text-slate-400"
                     >
-                      Sepet boş.
-                      {!isEditMode && (
-                        <>
-                          {' '}
-                          <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-xs">F2</kbd> ile
-                          ürün ekleyin.
-                        </>
-                      )}
+                      Sepet boş.{' '}
+                      <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-xs">F2</kbd> ile
+                      ürün ekleyin.
                     </td>
                   </tr>
                 )}

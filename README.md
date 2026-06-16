@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.2` · `since1907/akgun-frontend:v1.8.8`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.3` · `since1907/akgun-frontend:v1.8.9`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -139,7 +139,7 @@ Satış İade ekranında artık **fatura seçimi yok**. Akış:
 - Müşteri bilgileri, ödeme, teslimat, vade ve **tüm ürün kalemleri** (adet, fiyat $, indirim) API'den dolu gelir
 - **DEĞİŞİKLİKLERİ KAYDET** ile tek adımda `PUT /api/sales/invoices/:id` kaydı
 - Ön siparişlerde ek olarak **Siparişi Tamamla** (`POST .../fulfill`) butonu görünür
-- Düzenleme modunda yeni ürün ekleme / satır silme kapalıdır (mevcut kalemlerin adet ve fiyatı değiştirilebilir)
+- Düzenlemede **F2 ile yeni ürün eklenebilir** ve satırlar silinebilir (iade kaydı olan satır silinemez)
 - Alış ve iade faturaları bu ekrandan düzenlenemez (bilgi mesajı gösterilir)
 
 ### Fatura Listesi (genel)
@@ -351,6 +351,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.8.6 | Kompakt UI — global %30 ölçek (font, buton, boşluk oranları korunarak) |
 | v1.8.7 | Fatura/ön sipariş düzenleme — popup kaldırıldı; Satış Yap ekranı ile aynı sayfada tam düzenleme ve tek kaydet |
 | v1.8.8 | Satış iade — fatura seçimi kaldırıldı; müşteri+ürün, 6 ay kontrolü, son fiyat ve fatura no ile sepet |
+| v1.8.9 | Fatura düzenlemede F2 ile ürün ekleme ve satır silme; stok ve cari otomatik güncellenir |
 ---
 
 ## Ingress / Domain (Rancher)

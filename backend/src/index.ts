@@ -1516,8 +1516,10 @@ app.put<{
     exchangeRate?: number;
     isPreOrder?: boolean;
     customerId?: number;
+    removeItemIds?: number[];
     items?: Array<{
-      id: number;
+      id?: number;
+      productId?: number;
       quantity?: number;
       unitPrice?: number;
       discountPercent?: number;
@@ -1582,10 +1584,48 @@ app.put<{
         }
       }
 
-      if (body.items?.length) {
+      if (body.removeItemIds?.length || body.items?.length) {
         const itemMap = new Map(existing.items.map((item) => [item.id, item]));
 
-        for (const patch of body.items) {
+        if (body.removeItemIds?.length) {
+          const uniqueRemoves = [
+            ...new Set(
+              body.removeItemIds
+                .map((raw) => Number(raw))
+                .filter((itemId) => Number.isFinite(itemId) && itemId > 0)
+            ),
+          ];
+
+          for (const itemId of uniqueRemoves) {
+            const current = itemMap.get(itemId);
+            if (!current) {
+              throw new Error(`Silinecek kalem #${itemId} bulunamadı.`);
+            }
+
+            const returnedQty = returnedMap.get(itemId) ?? 0;
+            if (returnedQty > 0) {
+              throw new Error(
+                `${current.id} numaralı satırda ${returnedQty} adet iade kaydı var; satır silinemez.`
+              );
+            }
+
+            await applyInvoiceStockDelta(
+              tx,
+              existing.type,
+              nextIsPreOrder,
+              current.productId,
+              merkezDepoId,
+              -current.quantity
+            );
+
+            await tx.invoiceItem.delete({ where: { id: itemId } });
+            itemMap.delete(itemId);
+          }
+        }
+
+        for (const patch of body.items ?? []) {
+          if (!patch.id) continue;
+
           const current = itemMap.get(patch.id);
           if (!current) {
             throw new Error(`Fatura kalemi #${patch.id} bulunamadı.`);
@@ -1652,6 +1692,61 @@ app.put<{
               },
             });
           }
+        }
+
+        for (const patch of body.items ?? []) {
+          if (patch.id) continue;
+
+          const productId = Number(patch.productId);
+          if (!Number.isFinite(productId) || productId <= 0) {
+            throw new Error('Yeni kalem için geçerli ürün seçin.');
+          }
+
+          const nextQty = Number(patch.quantity);
+          const nextUnitPrice = Number(patch.unitPrice);
+          const nextDiscount =
+            patch.discountPercent !== undefined ? Number(patch.discountPercent) : 0;
+
+          if (!Number.isFinite(nextQty) || nextQty <= 0) {
+            throw new Error('Yeni kalem adedi sıfırdan büyük olmalı.');
+          }
+          if (!Number.isFinite(nextUnitPrice) || nextUnitPrice < 0) {
+            throw new Error('Yeni kalem birim fiyatı geçersiz.');
+          }
+
+          const product = await tx.product.findUnique({ where: { id: productId } });
+          if (!product) {
+            throw new Error('Ürün bulunamadı.');
+          }
+
+          const lineTotal = roundMoney(
+            calcLineTotalTl({
+              productId,
+              quantity: nextQty,
+              unitPrice: nextUnitPrice,
+              discountPercent: nextDiscount,
+            })
+          );
+
+          await tx.invoiceItem.create({
+            data: {
+              invoiceId: id,
+              productId,
+              quantity: nextQty,
+              unitPrice: roundMoney(nextUnitPrice),
+              discountPercent: nextDiscount,
+              totalPrice: lineTotal,
+            },
+          });
+
+          await applyInvoiceStockDelta(
+            tx,
+            existing.type,
+            nextIsPreOrder,
+            productId,
+            merkezDepoId,
+            nextQty
+          );
         }
       }
 
