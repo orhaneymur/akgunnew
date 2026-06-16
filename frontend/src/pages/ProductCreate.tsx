@@ -85,7 +85,7 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
           <PlusCircle className="w-5 h-5" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Stok Kartı Oluştur</h1>
+          <h1 className="page-title">Stok Kartı Oluştur</h1>
           <p className="text-sm text-slate-500">
             Yeni ürün tanımı — MERKEZ_DEPO stok kaydı otomatik açılır
           </p>

@@ -784,9 +784,8 @@ export default function SalesCreate({
     }
   };
 
-  const inputClass =
-    'w-full rounded-lg border border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm px-3 py-2 bg-white';
-  const labelClass = 'block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1';
+  const inputClass = 'field-input';
+  const labelClass = 'field-label';
 
   if (editLoading) {
     return (
@@ -813,14 +812,14 @@ export default function SalesCreate({
           <ShoppingCart className="w-5 h-5" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">
+          <h1 className="page-title">
             {isEditMode
               ? isPreOrder
                 ? 'Ön Sipariş Düzenle'
                 : 'Satış Faturası Düzenle'
               : 'Hızlı Satış Yap'}
           </h1>
-          <p className="text-sm text-slate-500">
+          <p className="page-subtitle">
             {isEditMode
               ? `${displayInvoiceNo} · müşteri ve kalemler dolu gelir · Kaydet ile güncelle`
               : 'Esnaf fatura tezgâhı · F2 stok ara · Fiyatlar $ (USD) · F8 maliyet'}
@@ -1027,7 +1026,7 @@ export default function SalesCreate({
       <button
         type="button"
         onClick={openF2Modal}
-        className="w-full flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 px-6 shadow-md transition-colors font-semibold print:hidden"
+        className="btn btn-secondary btn-block print:hidden"
       >
         <Search className="w-5 h-5" />
         Hızlı Stok Kartı Bul (F2)
@@ -1041,7 +1040,7 @@ export default function SalesCreate({
             <ShoppingCart className="w-5 h-5 text-indigo-600" />
             <h2 className="font-semibold text-slate-800">Akıllı Sepet</h2>
             <span className="text-sm text-slate-500">({cart.length} kalem)</span>
-            <span className="text-[0.625rem] text-slate-400 hidden sm:inline">
+            <span className="text-caption text-slate-400 hidden sm:inline">
               Sepet: ←→↑↓ · Maliyet: F8 basılı tut
             </span>
           </div>
@@ -1227,13 +1226,13 @@ export default function SalesCreate({
           </div>
 
           <div className="rounded-xl bg-slate-100 p-3 text-center">
-            <p className="text-[0.625rem] text-slate-500 uppercase tracking-wide font-semibold">
+            <p className="text-caption text-slate-500 uppercase tracking-wide font-semibold">
               TL Karşılığı (referans)
             </p>
             <p className="text-lg font-bold text-slate-700 tabular-nums mt-1">
               {formatMoney(totalTl)}
             </p>
-            <p className="text-[0.625rem] text-slate-400 mt-1">
+            <p className="text-caption text-slate-400 mt-1">
               {formatUsd(totalUsd)} × {exchangeRate.toFixed(4)}
             </p>
           </div>
@@ -1282,7 +1281,7 @@ export default function SalesCreate({
               type="button"
               onClick={handleFulfill}
               disabled={fulfilling || submitting}
-              className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-amber-400 bg-amber-50 py-3 font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50 print:hidden"
+              className="btn btn-block border-2 border-amber-400 bg-amber-50 font-bold text-amber-800 hover:bg-amber-100 print:hidden"
             >
               <CheckCircle className="w-5 h-5" />
               {fulfilling ? 'Tamamlanıyor...' : 'Stok Düş (Ön Siparişi Tamamla)'}
@@ -1293,9 +1292,9 @@ export default function SalesCreate({
             type="button"
             onClick={handleSubmit}
             disabled={submitting || cart.length === 0}
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 disabled:from-slate-400 disabled:to-slate-400 text-white font-black uppercase tracking-wide py-4 px-4 sm:py-5 sm:px-6 rounded-2xl shadow-xl shadow-emerald-500/40 transition-all text-sm sm:text-base border-2 border-emerald-400 print:hidden"
+            className="btn btn-lg btn-primary btn-block uppercase tracking-wide print:hidden"
           >
-            <Save className="w-6 h-6" />
+            <Save className="h-5 w-5" />
             {submitting
               ? 'Kaydediliyor...'
               : isEditMode

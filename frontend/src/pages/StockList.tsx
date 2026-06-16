@@ -170,7 +170,7 @@ export default function StockList({ onNotify }: StockListProps = {}) {
             <Package className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Stok Listesi</h1>
+            <h1 className="page-title">Stok Listesi</h1>
             <p className="text-sm text-slate-500">
               Düzenlenebilir stok kartları · {LIST_PAGE_SIZE} kayıt / sayfa
               {totalPages > 0 && ` · ${totalPages.toLocaleString('tr-TR')} sayfa`}
@@ -347,7 +347,7 @@ export default function StockList({ onNotify }: StockListProps = {}) {
                                   <span className="text-indigo-600 font-semibold">
                                     {stock.quantity} adet
                                   </span>
-                                  <span className="text-[0.625rem] text-slate-400 uppercase">
+                                  <span className="text-caption text-slate-400 uppercase">
                                     {stock.branch.type}
                                   </span>
                                 </span>

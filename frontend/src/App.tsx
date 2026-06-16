@@ -391,18 +391,18 @@ function App() {
 
               <div className="flex shrink-0 items-center gap-2">
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-center sm:px-4 sm:py-2">
-                  <span className="block text-[0.625rem] font-medium text-emerald-600 sm:text-xs">
+                  <span className="block text-caption font-medium text-emerald-600 sm:text-xs">
                     USD
                   </span>
                   <span className="text-xs font-bold text-emerald-700 sm:text-sm">
                     {exchangeRates.usd.toFixed(4)}
                   </span>
-                  <span className="block text-[0.5625rem] text-emerald-500/80 truncate max-w-[3.15rem]">
+                  <span className="block text-caption text-emerald-500/80 truncate max-w-[3.15rem]">
                     {exchangeRates.source}
                   </span>
                 </div>
                 <div className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-center sm:px-4 sm:py-2">
-                  <span className="block text-[0.625rem] font-medium text-blue-600 sm:text-xs">
+                  <span className="block text-caption font-medium text-blue-600 sm:text-xs">
                     EUR
                   </span>
                   <span className="text-xs font-bold text-blue-700 sm:text-sm">
@@ -429,7 +429,7 @@ function App() {
                   />
                 </div>
                 {usdTlAmount != null && (
-                  <span className="mt-1 whitespace-nowrap text-[0.625rem] leading-none text-slate-400">
+                  <span className="mt-1 whitespace-nowrap text-caption leading-none text-slate-400">
                     {formatMoney(usdTlAmount)}
                   </span>
                 )}
@@ -451,7 +451,7 @@ function App() {
                   />
                 </div>
                 {eurTlAmount != null && (
-                  <span className="mt-1 whitespace-nowrap text-[0.625rem] leading-none text-slate-400">
+                  <span className="mt-1 whitespace-nowrap text-caption leading-none text-slate-400">
                     {formatMoney(eurTlAmount)}
                   </span>
                 )}

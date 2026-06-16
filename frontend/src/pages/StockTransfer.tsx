@@ -126,7 +126,7 @@ export default function StockTransfer({
           <ArrowLeftRight className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Depo Transfer</h1>
+          <h1 className="page-title">Depo Transfer</h1>
           <p className="text-sm text-slate-500">
             {depotLabel('MERKEZ_DEPO')} ↔ {depotLabel('CIN_IADE_DEPO')}
           </p>

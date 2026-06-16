@@ -90,7 +90,7 @@ export default function CustomerStatement() {
             <FileText className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Müşteri Ekstre</h1>
+            <h1 className="page-title">Müşteri Ekstre</h1>
             <p className="text-sm text-slate-500">Cari hesap hareketleri</p>
           </div>
         </div>

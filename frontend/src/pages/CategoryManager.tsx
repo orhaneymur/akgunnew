@@ -100,7 +100,7 @@ export default function CategoryManager() {
           <FolderTree className="w-5 h-5" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">
+          <h1 className="page-title">
             Kategori & Marka/Model
           </h1>
           <p className="text-sm text-slate-500">

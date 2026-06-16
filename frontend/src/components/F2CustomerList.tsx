@@ -42,9 +42,9 @@ export default function F2CustomerList({
           >
             <div className="min-w-0">
               <p className="text-xs font-medium text-slate-900 truncate">{customer.name}</p>
-              <p className="text-[0.625rem] text-slate-500">{customer.code}</p>
+              <p className="text-caption text-slate-500">{customer.code}</p>
             </div>
-            <span className={`text-[0.625rem] font-semibold shrink-0 ${balanceClass.text}`}>
+            <span className={`text-caption font-semibold shrink-0 ${balanceClass.text}`}>
               {formatMoney(customer.balance)}
             </span>
           </li>

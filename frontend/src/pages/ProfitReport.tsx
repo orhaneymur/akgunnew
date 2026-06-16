@@ -86,7 +86,7 @@ export default function ProfitReport() {
           <BarChart3 className="w-5 h-5" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Kâr-Zarar Raporu</h1>
+          <h1 className="page-title">Kâr-Zarar Raporu</h1>
           <p className="text-sm text-slate-500">
             {monthLabel} satış analizi ve ürün bazlı kârlılık
           </p>
@@ -99,7 +99,7 @@ export default function ProfitReport() {
             <TrendingUp className="w-4 h-4" />
             Bu Ay Ciro
           </div>
-          <p className="text-2xl font-bold text-slate-900">
+          <p className="page-title">
             {formatMoney(thisMonth.totalRevenue)}
           </p>
           <p className="text-xs text-slate-400 mt-1">

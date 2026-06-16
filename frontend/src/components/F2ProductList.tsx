@@ -57,9 +57,9 @@ export default function F2ProductList({
           >
             <div className="min-w-0">
               <p className="text-xs font-medium text-slate-900 truncate">{product.name}</p>
-              <p className="text-[0.625rem] text-slate-500">{product.sku}</p>
+              <p className="text-caption text-slate-500">{product.sku}</p>
               {hasPartyPrice && (
-                <p className="text-[0.625rem] text-amber-700">
+                <p className="text-caption text-amber-700">
                   Son fiyat:{' '}
                   {priceMode === 'usd' && partyUsd != null
                     ? formatUsd(partyUsd)
@@ -73,14 +73,14 @@ export default function F2ProductList({
                   <p className="text-xs font-bold text-slate-900 tabular-nums">
                     {formatUsd(product.priceUsd)}
                   </p>
-                  <p className="text-[0.625rem] text-slate-500">{formatMoney(product.priceTl)}</p>
+                  <p className="text-caption text-slate-500">{formatMoney(product.priceTl)}</p>
                 </>
               ) : (
                 <>
                   <p className="text-xs font-bold text-slate-900 tabular-nums">
                     {formatMoney(product.priceTl)}
                   </p>
-                  <p className="text-[0.625rem] text-slate-500">{formatUsd(product.priceUsd)}</p>
+                  <p className="text-caption text-slate-500">{formatUsd(product.priceUsd)}</p>
                 </>
               )}
             </div>

@@ -65,7 +65,7 @@ export default function CashFlowReport() {
             <Wallet className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Kasa Giriş-Çıkış Raporu</h1>
+            <h1 className="page-title">Kasa Giriş-Çıkış Raporu</h1>
             <p className="text-sm text-slate-500">Dönemsel kasa hareketleri</p>
           </div>
         </div>

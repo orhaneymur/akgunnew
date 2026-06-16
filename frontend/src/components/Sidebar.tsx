@@ -56,7 +56,7 @@ export default function Sidebar({
               <h1 className="truncate text-base font-bold tracking-wide text-white">
                 Akgün Teknik
               </h1>
-              <p className="text-[11px] text-slate-400">ERP Yönetim Paneli</p>
+              <p className="text-caption text-slate-400">ERP Yönetim Paneli</p>
             </div>
           </div>
           {onMobileClose && (
@@ -110,7 +110,7 @@ export default function Sidebar({
                     categoryActive ? 'text-indigo-300' : 'text-slate-500'
                   }`}
                 />
-                <span className="flex-1 text-left text-[13px]">{category.label}</span>
+                <span className="flex-1 text-left text-sm">{category.label}</span>
                 <ChevronDown
                   className={`h-4 w-4 shrink-0 text-slate-500 transition-transform duration-300 ${
                     isOpen ? 'rotate-180' : ''
@@ -141,7 +141,7 @@ export default function Sidebar({
                             event.preventDefault();
                             handleOpenInNewTab(item.id);
                           }}
-                          className={`flex w-full items-center gap-2 rounded-lg py-2 pl-7 pr-3 text-[13px] transition-all no-underline ${
+                          className={`flex w-full items-center gap-2 rounded-lg py-2 pl-7 pr-3 text-sm transition-all no-underline ${
                             active
                               ? 'bg-indigo-600/90 font-medium text-white shadow-sm'
                               : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
@@ -150,7 +150,7 @@ export default function Sidebar({
                           <span className="flex-1 text-left">{item.label}</span>
                           {item.badge && (
                             <kbd
-                              className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                              className={`rounded px-1.5 py-0.5 font-mono text-caption ${
                                 active
                                   ? 'bg-indigo-500/50 text-indigo-100'
                                   : 'bg-slate-800 text-slate-500'

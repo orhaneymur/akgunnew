@@ -177,10 +177,10 @@ export default function Dashboard({
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
+    <div className="mx-auto max-w-5xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Ana Sayfa</h1>
-        <p className="mt-1 text-sm text-slate-500">Hızlı işlemler ve son hareketler</p>
+        <h1 className="page-title">Ana Sayfa</h1>
+        <p className="page-subtitle mt-1">Hızlı işlemler ve son hareketler</p>
       </div>
 
       {onNavigate && (
@@ -199,9 +199,9 @@ export default function Dashboard({
                       : undefined
                   )
                 }
-                className={`flex flex-col items-center gap-2 rounded-xl ${action.color} p-4 text-white shadow-md transition hover:opacity-90`}
+                className={`flex flex-col items-center gap-1.5 rounded-xl ${action.color} p-3 text-white shadow-md transition hover:opacity-90`}
               >
-                <Icon className="h-6 w-6" />
+                <Icon className="h-5 w-5" />
                 <span className="text-center text-xs font-semibold leading-tight">
                   {action.label}
                 </span>
@@ -242,12 +242,12 @@ export default function Dashboard({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className={`shrink-0 rounded px-1.5 py-0.5 text-[0.625rem] font-semibold ring-1 ring-inset ${invoiceTypeStyles(inv.type)}`}
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-caption font-semibold ring-1 ring-inset ${invoiceTypeStyles(inv.type)}`}
                     >
                       {invoiceTypeLabel(inv.type)}
                     </span>
                     {inv.isPreOrder && (
-                      <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[0.625rem] font-semibold text-amber-800">
+                      <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-caption font-semibold text-amber-800">
                         Ön Sipariş
                       </span>
                     )}

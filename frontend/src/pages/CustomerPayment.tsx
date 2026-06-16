@@ -236,7 +236,7 @@ export default function CustomerPayment({
           <Wallet className="w-5 h-5" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Müşteri Ödeme İşlemleri</h1>
+          <h1 className="page-title">Müşteri Ödeme İşlemleri</h1>
           <p className="text-sm text-slate-500">
             Cari tahsilat ve ödeme · Kod/isim ile ara veya F2 ile hızlı müşteri bul
           </p>
@@ -362,7 +362,7 @@ export default function CustomerPayment({
               type="button"
               disabled={submitting}
               onClick={() => handlePayment('GIRIS')}
-              className="flex-1 min-w-[200px] flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white font-semibold py-3 px-6 rounded-xl shadow-lg shadow-emerald-600/20 transition-all"
+              className="btn btn-secondary flex-1 min-w-[200px]"
             >
               <ArrowDownLeft className="w-5 h-5" />
               {submitting ? 'Kaydediliyor...' : 'Tahsilat Al (Giriş)'}
@@ -371,7 +371,7 @@ export default function CustomerPayment({
               type="button"
               disabled={submitting}
               onClick={() => handlePayment('CIKIS')}
-              className="flex-1 min-w-[200px] flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 disabled:bg-slate-400 text-white font-semibold py-3 px-6 rounded-xl shadow-lg shadow-rose-600/20 transition-all"
+              className="btn flex-1 min-w-[200px] bg-rose-600 text-white hover:bg-rose-500 disabled:bg-slate-400"
             >
               <ArrowUpRight className="w-5 h-5" />
               {submitting ? 'Kaydediliyor...' : 'Ödeme Yap (Çıkış)'}

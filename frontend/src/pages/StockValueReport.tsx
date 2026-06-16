@@ -71,7 +71,7 @@ export default function StockValueReport() {
             <Package className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Stok Değeri Raporu</h1>
+            <h1 className="page-title">Stok Değeri Raporu</h1>
             <p className="text-sm text-slate-500">MERKEZ_DEPO · adet × maliyet</p>
           </div>
         </div>

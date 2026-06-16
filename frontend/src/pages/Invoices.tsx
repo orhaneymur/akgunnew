@@ -323,7 +323,7 @@ export default function Invoices({
                         {invoiceTypeLabel(inv.type)}
                       </span>
                       {inv.isPreOrder && (
-                        <span className="ml-2 inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-[0.625rem] font-semibold text-amber-800">
+                        <span className="ml-2 inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-caption font-semibold text-amber-800">
                           Ön Sipariş
                         </span>
                       )}

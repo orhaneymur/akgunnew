@@ -75,7 +75,7 @@ export default function AnalyticsReport() {
           <BarChart3 className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">İşletme Özeti</h1>
+          <h1 className="page-title">İşletme Özeti</h1>
           <p className="text-sm text-slate-500">
             Ciro grafikleri, personel performansı ve stok uyarıları
           </p>

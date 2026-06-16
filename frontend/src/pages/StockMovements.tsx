@@ -93,7 +93,7 @@ export default function StockMovements() {
             <History className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Stok Hareketleri</h1>
+            <h1 className="page-title">Stok Hareketleri</h1>
             <p className="text-sm text-slate-500">
               Satış, alış ve iade kaynaklı hareketler — müşteri, fiyat ve personel detayı
             </p>
@@ -189,12 +189,12 @@ export default function StockMovements() {
                             {row.direction === 'IN' ? 'Giriş' : 'Çıkış'}
                           </span>
                           {row.isPreOrder && (
-                            <span className="mt-1 block text-[0.625rem] font-medium text-amber-700">
+                            <span className="mt-1 block text-caption font-medium text-amber-700">
                               Ön sipariş
                             </span>
                           )}
                           {!row.affectsStock && (
-                            <span className="mt-1 block text-[0.625rem] text-slate-400">
+                            <span className="mt-1 block text-caption text-slate-400">
                               Stok etkilenmedi
                             </span>
                           )}
@@ -205,7 +205,7 @@ export default function StockMovements() {
                         <td className="px-4 py-3 text-right text-sm text-slate-700">
                           {formatMoney(row.unitPrice)}
                           {row.discountPercent > 0 && (
-                            <span className="block text-[0.625rem] text-amber-600">
+                            <span className="block text-caption text-amber-600">
                               %{row.discountPercent} ind.
                             </span>
                           )}
@@ -267,7 +267,7 @@ export default function StockMovements() {
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[0.625rem] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-caption font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <p className="font-medium text-slate-800">{value}</p>
     </div>
   );

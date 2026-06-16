@@ -414,7 +414,7 @@ export default function SalesReturn({
           <RotateCcw className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Satış İade</h1>
+          <h1 className="page-title">Satış İade</h1>
           <p className="text-sm text-slate-500">
             Müşteri seçin, F2 ile ürün ekleyin — son 6 ay içindeki alımlar iade edilebilir
           </p>
@@ -546,7 +546,7 @@ export default function SalesReturn({
                               {line.productName}
                             </p>
                             <p className="text-xs text-slate-500">{line.productSku}</p>
-                            <p className="text-[0.625rem] text-slate-400">
+                            <p className="text-caption text-slate-400">
                               Max {line.maxReturnable} adet
                             </p>
                           </td>
@@ -631,7 +631,7 @@ export default function SalesReturn({
 
         <aside className="sticky top-6 h-fit space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="font-semibold text-slate-800">İade Özeti</h2>
-          <div className="text-2xl font-bold text-slate-900">{formatUsd(totalUsd)}</div>
+          <div className="page-title">{formatUsd(totalUsd)}</div>
           <p className="text-xs text-slate-400">{formatMoney(totalTl)} TL</p>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between text-slate-600">
@@ -647,7 +647,7 @@ export default function SalesReturn({
             type="button"
             onClick={handleSubmit}
             disabled={submitting || activeLines.length === 0}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-600 py-4 font-bold text-white hover:bg-amber-500 disabled:bg-slate-400"
+            className="btn btn-lg btn-amber btn-block sm:w-auto"
           >
             <Save className="h-5 w-5" />
             {submitting ? 'Kaydediliyor...' : 'İADEYİ KAYDET'}

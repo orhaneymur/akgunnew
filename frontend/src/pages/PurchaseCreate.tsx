@@ -363,7 +363,7 @@ export default function PurchaseCreate({
           <FileInput className="w-5 h-5" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Alış Faturası</h1>
+          <h1 className="page-title">Alış Faturası</h1>
           <p className="text-sm text-slate-500">
             Tedarikçiden mal kabul · Fiyatlar $ (USD) · MERKEZ_DEPO stok artışı
           </p>
@@ -690,7 +690,7 @@ export default function PurchaseCreate({
               type="button"
               onClick={handleSubmit}
               disabled={submitting || cart.length === 0}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-red-600 px-6 py-3 font-bold uppercase tracking-wide text-white shadow-lg disabled:from-slate-400 disabled:to-slate-400 sm:w-auto"
+              className="btn btn-lg btn-danger uppercase tracking-wide sm:w-auto"
             >
               <Save className="w-5 h-5" />
               {submitting ? 'Kaydediliyor...' : 'Alışı Kaydet'}

@@ -109,7 +109,7 @@ export default function SafeManager() {
             <Wallet className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Kasa Tanımları</h1>
+            <h1 className="page-title">Kasa Tanımları</h1>
             <p className="text-sm text-slate-500">
               Nakit kasalar ve banka hesapları
             </p>
