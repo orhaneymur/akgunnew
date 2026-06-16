@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 BACKEND_IMAGE="${BACKEND_IMAGE:-since1907/akgun-backend:v1.8.1}"
-FRONTEND_IMAGE="${FRONTEND_IMAGE:-since1907/akgun-frontend:v1.8.3}"
+FRONTEND_IMAGE="${FRONTEND_IMAGE:-since1907/akgun-frontend:v1.8.4}"
 
 echo "==> Git guncelleme (orhan branch)..."
 git fetch origin orhan
@@ -33,6 +33,10 @@ bash k8s/apply-migrations.sh
 echo "==> K8s manifestleri..."
 kubectl apply -f k8s/mysql-deployment.yaml
 kubectl apply -f k8s/apps.yaml
+if [ -f k8s/ingress.yaml ]; then
+  echo "==> Ingress (nginx timeout)..."
+  kubectl apply -f k8s/ingress.yaml
+fi
 
 echo "==> Imaj guncelleme..."
 kubectl set image "deployment/akgunteknik-backend" "backend=${BACKEND_IMAGE}"

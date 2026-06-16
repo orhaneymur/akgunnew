@@ -1,8 +1,7 @@
-# Traefik / nginx Ingress Controller ile HTTPS (K3s)
-# Ön koşul: ingress-nginx veya traefik kurulu olmalı
-# kubectl apply -f k8s/ingress.yaml
+# Traefik / nginx Ingress Controller ile HTTPS (K3s / Rancher)
+# deploy-production.sh bu dosyayı otomatik uygular.
 #
-# Host adını kendi domain'inize göre düzenleyin.
+# Canlı host: akgun.derneklab.com
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -10,16 +9,20 @@ kind: Ingress
 metadata:
   name: akgunteknik-ingress
   annotations:
-    # nginx ingress örneği:
+    # nginx ingress — uzun API / Excel istekleri (varsayılan 60s → 504 verir)
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/client-body-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
     # cert-manager kullanıyorsanız:
     # cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
   rules:
-    - host: erp.akgunteknik.local
+    - host: akgun.derneklab.com
       http:
         paths:
           - path: /
@@ -31,5 +34,5 @@ spec:
                   number: 80
   # tls:
   #   - hosts:
-  #       - erp.akgunteknik.local
+  #       - akgun.derneklab.com
   #     secretName: akgunteknik-tls
