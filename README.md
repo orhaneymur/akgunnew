@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.1` · `since1907/akgun-frontend:v1.8.4`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.1` · `since1907/akgun-frontend:v1.8.6`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -325,7 +325,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.8.3 | Fiyatlar virgülden sonra 2 basamak (18,50 $); stoktan gelen tüm fiyatlarda tutarlı yuvarlama |
 | v1.8.4 | Nginx/Ingress 600s timeout; Excel ve uzun API isteklerinde 504 düzeltmesi |
 | v1.8.5 | Ingress apply kaldırıldı (Rancher uyumu); yalnızca timeout annotation patch |
-
+| v1.8.6 | Kompakt UI — global %30 ölçek (font, buton, boşluk oranları korunarak) |
 ---
 
 ## Ingress / Domain (Rancher)

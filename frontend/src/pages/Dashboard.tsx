@@ -182,7 +182,7 @@ export default function Dashboard({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span
-                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${invoiceTypeStyles(inv.type)}`}
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[0.625rem] font-semibold ring-1 ring-inset ${invoiceTypeStyles(inv.type)}`}
                     >
                       {invoiceTypeLabel(inv.type)}
                     </span>

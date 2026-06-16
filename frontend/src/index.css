@@ -1,20 +1,25 @@
 @import "tailwindcss";
 
+/*
+ * Kompakt UI — tüm rem tabanlı boyutlar ~%30 küçülür (16px → 11.2px).
+ * text-[Npx] yerine text-[Nrem] kullanın; px sabit kalır.
+ */
 @layer base {
   html {
+    font-size: 70%;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
 
   body {
     overflow-x: hidden;
+    line-height: 1.45;
   }
 
   #root {
     min-height: 100dvh;
   }
 
-  /* Adet, fiyat, indirim vb. — manuel giriş; tarayıcı okları gizli */
   input[type='number']::-webkit-outer-spin-button,
   input[type='number']::-webkit-inner-spin-button {
     -webkit-appearance: none;
@@ -34,8 +39,8 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 4px;
+    height: 4px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {

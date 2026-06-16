@@ -776,7 +776,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
             <h2 className="font-semibold text-slate-800">Akıllı Sepet</h2>
             <span className="text-sm text-slate-500">({cart.length} kalem)</span>
             {!showCosts && (
-              <span className="text-[10px] text-slate-400 hidden sm:inline">
+              <span className="text-[0.625rem] text-slate-400 hidden sm:inline">
                 Maliyet: F8 basılı tut
               </span>
             )}
@@ -820,7 +820,7 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
                         {item.product.sku}
                       </td>
                       <td className="px-3 py-2">
-                        <p className="font-medium text-slate-900 truncate max-w-[200px]">
+                        <p className="font-medium text-slate-900 truncate max-w-[8.75rem]">
                           {item.product.name}
                         </p>
                       </td>
@@ -952,13 +952,13 @@ export default function SalesCreate({ f2Trigger = 0, onNotify, onDataChange }: S
           </div>
 
           <div className="rounded-xl bg-slate-100 p-3 text-center">
-            <p className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">
+            <p className="text-[0.625rem] text-slate-500 uppercase tracking-wide font-semibold">
               TL Karşılığı (referans)
             </p>
             <p className="text-lg font-bold text-slate-700 tabular-nums mt-1">
               {formatMoney(totalTl)}
             </p>
-            <p className="text-[10px] text-slate-400 mt-1">
+            <p className="text-[0.625rem] text-slate-400 mt-1">
               {formatUsd(totalUsd)} × {exchangeRate.toFixed(4)}
             </p>
           </div>

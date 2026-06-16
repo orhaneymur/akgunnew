@@ -347,7 +347,7 @@ export default function StockList({ onNotify }: StockListProps = {}) {
                                   <span className="text-indigo-600 font-semibold">
                                     {stock.quantity} adet
                                   </span>
-                                  <span className="text-[10px] text-slate-400 uppercase">
+                                  <span className="text-[0.625rem] text-slate-400 uppercase">
                                     {stock.branch.type}
                                   </span>
                                 </span>

@@ -492,7 +492,7 @@ export default function Invoices({
                         {invoiceTypeLabel(inv.type)}
                       </span>
                       {inv.isPreOrder && (
-                        <span className="ml-2 inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                        <span className="ml-2 inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-[0.625rem] font-semibold text-amber-800">
                           Ön Sipariş
                         </span>
                       )}
@@ -746,7 +746,7 @@ export default function Invoices({
                               <p className="text-xs text-slate-400">{line.product.sku}</p>
                             </div>
                             <div>
-                              <label className="text-[10px] text-slate-500">Adet</label>
+                              <label className="text-[0.625rem] text-slate-500">Adet</label>
                               <input
                                 type="number"
                                 min="0.01"
@@ -757,7 +757,7 @@ export default function Invoices({
                               />
                             </div>
                             <div>
-                              <label className="text-[10px] text-slate-500">Birim Fiyat (TL)</label>
+                              <label className="text-[0.625rem] text-slate-500">Birim Fiyat (TL)</label>
                               <input
                                 type="number"
                                 min="0"
@@ -768,7 +768,7 @@ export default function Invoices({
                               />
                             </div>
                             <div>
-                              <label className="text-[10px] text-slate-500">İndirim %</label>
+                              <label className="text-[0.625rem] text-slate-500">İndirim %</label>
                               <input
                                 type="number"
                                 min="0"
@@ -853,7 +853,7 @@ export default function Invoices({
                             <td className="py-2 text-right">
                               {line.quantity}
                               {line.returnableQty != null && detail.type === 'SATIS' && (
-                                <span className="block text-[10px] text-emerald-600">
+                                <span className="block text-[0.625rem] text-emerald-600">
                                   iade: {line.returnableQty}
                                 </span>
                               )}
@@ -862,7 +862,7 @@ export default function Invoices({
                             <td className="py-2 text-right font-medium">
                               {formatMoney(line.totalPrice)}
                               {(line.discountPercent ?? 0) > 0 && (
-                                <span className="block text-[10px] text-amber-600">
+                                <span className="block text-[0.625rem] text-amber-600">
                                   %{line.discountPercent} ind.
                                 </span>
                               )}

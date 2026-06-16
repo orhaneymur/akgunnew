@@ -78,7 +78,7 @@ export default function ProductSearchPopover({
       <div className={`${headerClassName} px-3 py-2 text-white flex items-center justify-between gap-2`}>
         <div className="min-w-0">
           <h3 className="text-sm font-semibold truncate">{title}</h3>
-          <p className="text-[10px] opacity-80">{hint} · sayfa açık kalır</p>
+          <p className="text-[0.625rem] opacity-80">{hint} · sayfa açık kalır</p>
         </div>
         <button
           type="button"
@@ -121,7 +121,7 @@ export default function ProductSearchPopover({
         )}
       </div>
       {footer ? (
-        <div className="border-t border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] text-slate-500 text-right">
+        <div className="border-t border-slate-100 bg-slate-50 px-3 py-1.5 text-[0.625rem] text-slate-500 text-right">
           {footer}
         </div>
       ) : null}

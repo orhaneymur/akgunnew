@@ -375,18 +375,18 @@ function App() {
 
               <div className="flex shrink-0 items-center gap-2">
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-center sm:px-4 sm:py-2">
-                  <span className="block text-[10px] font-medium text-emerald-600 sm:text-xs">
+                  <span className="block text-[0.625rem] font-medium text-emerald-600 sm:text-xs">
                     USD
                   </span>
                   <span className="text-xs font-bold text-emerald-700 sm:text-sm">
                     {exchangeRates.usd.toFixed(4)}
                   </span>
-                  <span className="block text-[9px] text-emerald-500/80 truncate max-w-[72px]">
+                  <span className="block text-[0.5625rem] text-emerald-500/80 truncate max-w-[3.15rem]">
                     {exchangeRates.source}
                   </span>
                 </div>
                 <div className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-center sm:px-4 sm:py-2">
-                  <span className="block text-[10px] font-medium text-blue-600 sm:text-xs">
+                  <span className="block text-[0.625rem] font-medium text-blue-600 sm:text-xs">
                     EUR
                   </span>
                   <span className="text-xs font-bold text-blue-700 sm:text-sm">
@@ -397,7 +397,7 @@ function App() {
             </div>
 
             <div className="hidden items-end gap-2 sm:flex">
-              <div className="flex min-w-[72px] flex-col items-center">
+              <div className="flex min-w-[3.15rem] flex-col items-center">
                 <div className="relative w-full">
                   <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-emerald-600">
                     $
@@ -413,13 +413,13 @@ function App() {
                   />
                 </div>
                 {usdTlAmount != null && (
-                  <span className="mt-1 whitespace-nowrap text-[10px] leading-none text-slate-400">
+                  <span className="mt-1 whitespace-nowrap text-[0.625rem] leading-none text-slate-400">
                     {formatMoney(usdTlAmount)}
                   </span>
                 )}
               </div>
 
-              <div className="flex min-w-[72px] flex-col items-center">
+              <div className="flex min-w-[3.15rem] flex-col items-center">
                 <div className="relative w-full">
                   <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-blue-600">
                     €
@@ -435,7 +435,7 @@ function App() {
                   />
                 </div>
                 {eurTlAmount != null && (
-                  <span className="mt-1 whitespace-nowrap text-[10px] leading-none text-slate-400">
+                  <span className="mt-1 whitespace-nowrap text-[0.625rem] leading-none text-slate-400">
                     {formatMoney(eurTlAmount)}
                   </span>
                 )}
