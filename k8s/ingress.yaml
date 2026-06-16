@@ -1,7 +1,6 @@
-# Traefik / nginx Ingress Controller ile HTTPS (K3s / Rancher)
-# deploy-production.sh bu dosyayı otomatik uygular.
-#
-# Canlı host: akgun.derneklab.com
+# ÖRNEK — yeni kurulum için referans. Rancher/canlı ortamda kubectl apply ETMEYİN.
+# Canlıda timeout için: bash k8s/patch-ingress-timeouts.sh
+# Host ve TLS ayarlarını Rancher UI üzerinden yönetin.
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -9,7 +8,6 @@ kind: Ingress
 metadata:
   name: akgunteknik-ingress
   annotations:
-    # nginx ingress — uzun API / Excel istekleri (varsayılan 60s → 504 verir)
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
@@ -17,12 +15,10 @@ metadata:
     nginx.ingress.kubernetes.io/client-body-timeout: "600"
     nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    # cert-manager kullanıyorsanız:
-    # cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
   rules:
-    - host: akgun.derneklab.com
+    - host: erp.ornek-domain.com
       http:
         paths:
           - path: /
@@ -32,7 +28,3 @@ spec:
                 name: akgunteknik-frontend
                 port:
                   number: 80
-  # tls:
-  #   - hosts:
-  #       - akgun.derneklab.com
-  #     secretName: akgunteknik-tls

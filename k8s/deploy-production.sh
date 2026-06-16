@@ -33,9 +33,9 @@ bash k8s/apply-migrations.sh
 echo "==> K8s manifestleri..."
 kubectl apply -f k8s/mysql-deployment.yaml
 kubectl apply -f k8s/apps.yaml
-if [ -f k8s/ingress.yaml ]; then
-  echo "==> Ingress (nginx timeout)..."
-  kubectl apply -f k8s/ingress.yaml
+if [ -f k8s/patch-ingress-timeouts.sh ]; then
+  echo "==> Ingress timeout (mevcut kurallara dokunulmaz)..."
+  bash k8s/patch-ingress-timeouts.sh
 fi
 
 echo "==> Imaj guncelleme..."

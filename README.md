@@ -324,6 +324,17 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.8.2 | Sayı alanlarında (adet, fiyat, indirim) tarayıcı yukarı/aşağı okları kaldırıldı |
 | v1.8.3 | Fiyatlar virgülden sonra 2 basamak (18,50 $); stoktan gelen tüm fiyatlarda tutarlı yuvarlama |
 | v1.8.4 | Nginx/Ingress 600s timeout; Excel ve uzun API isteklerinde 504 düzeltmesi |
+| v1.8.5 | Ingress apply kaldırıldı (Rancher uyumu); yalnızca timeout annotation patch |
+
+---
+
+## Ingress / Domain (Rancher)
+
+**Önemli:** Canlı ortamda `kubectl apply -f k8s/ingress.yaml` **kullanmayın** — Rancher’daki host/TLS ayarlarının üzerine yazabilir.
+
+- ERP timeout (504): `bash k8s/patch-ingress-timeouts.sh` (host’a dokunmaz)
+- Domain yönlendirmesi: **Rancher UI** → Ingress → backend: `akgunteknik-frontend:80`
+- Ingress çalışmazsa doğrudan erişim: `kubectl get svc akgunteknik-frontend` → `EXTERNAL-IP:NodePort` (ör. `:30179`)
 
 ---
 
