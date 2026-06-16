@@ -28,8 +28,8 @@ Tarayıcı: `http://localhost:5173` · Giriş: `akgunteknik` / `123456`
 npm run build
 ```
 
-Docker imajı: `since1907/akgun-frontend:v1.8.7` (Nginx ile statik serve)
+Docker imajı: `since1907/akgun-frontend:v1.8.8` (Nginx ile statik serve)
 
-## Fatura / ön sipariş düzenleme (v1.8.7)
+## Satış iade (v1.8.8)
 
-`Invoices.tsx` listesinde fatura no veya göz ikonuna tıklanınca `SalesCreate` düzenleme modu aynı sayfada açılır (`editInvoiceId` prop). Popup ve ayrı sekme yoktur.
+Müşteri seç → F2 ile ürün ekle. 6 ay içinde alınmamış ürünler uyarı verir; uygun ürünler son satış fiyatı ve fatura no ile sepete gelir.

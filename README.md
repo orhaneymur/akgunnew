@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.1` · `since1907/akgun-frontend:v1.8.7`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.2` · `since1907/akgun-frontend:v1.8.8`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -110,7 +110,19 @@ Hızlı Satış ekranı (`SalesCreate.tsx`) esnaf fatura düzenine göre **4 üs
 - Ürün kartlarında **`costPrice` (Alış Maliyeti)** ve **`priceTl` (Satış Fiyatı)** zorunlu takibi
 - Stok listesi, barkod etiket ve stok kartı oluşturma ekranları
 
-### Akıllı İade Lojiği
+### Akıllı İade Lojiği (v1.8.8 — müşteri + ürün akışı)
+
+Satış İade ekranında artık **fatura seçimi yok**. Akış:
+
+1. **Müşteri seç** → F2 ile **ürün ara**
+2. API (`GET /api/sales/returnable-item`) müşterinin o ürünle ilgili satış geçmişini kontrol eder
+3. **Hiç alınmamış** veya **son alım 6 aydan eski** → uyarı popup, sepete eklenmez
+4. **Son 6 ay içinde alınmış** → ürün sepete eklenir; **son satış fiyatı ($)** ve yanında **fatura numarası** görünür
+5. Fatura numarasına tıklayınca aynı sayfada fatura detayı açılır (Satış Yap düzenleme görünümü, geri ile iade ekranına dönülür)
+6. Farklı faturalardan ürünler eklenebilir; kayıtta fatura başına ayrı iade fişi oluşturulur
+7. **Çin İade** işareti satır bazında depo yönlendirmesini belirler
+
+### Akıllı İade Lojiği (stok)
 - **`isDefective: true`** → iade stoğu **ARIZALI_DEPO**'ya eklenir
 - **`isDefective: false`** → iade stoğu **MERKEZ_DEPO** satış stoğuna geri yüklenir
 - Müşteri carisinden iade tutarı düşülür, `IADE` tipi fatura oluşturulur
@@ -245,6 +257,7 @@ http://localhost:5173
 | GET | `/api/sales/products?search=&customerId=` | F2 ürün arama |
 | POST | `/api/sales/store` | Satış kaydı |
 | POST | `/api/sales/return` | İade kaydı |
+| GET | `/api/sales/returnable-item?customerId=&productId=` | İade uygunluğu (6 ay, son fiyat) |
 | GET | `/api/sales/invoices` | Fatura listesi (tip filtresi) |
 | GET | `/api/purchases/init` | Alış ekranı başlangıç verisi |
 | POST | `/api/purchases/store` | Alış faturası kaydı |
@@ -337,6 +350,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.8.5 | Ingress apply kaldırıldı (Rancher uyumu); yalnızca timeout annotation patch |
 | v1.8.6 | Kompakt UI — global %30 ölçek (font, buton, boşluk oranları korunarak) |
 | v1.8.7 | Fatura/ön sipariş düzenleme — popup kaldırıldı; Satış Yap ekranı ile aynı sayfada tam düzenleme ve tek kaydet |
+| v1.8.8 | Satış iade — fatura seçimi kaldırıldı; müşteri+ürün, 6 ay kontrolü, son fiyat ve fatura no ile sepet |
 ---
 
 ## Ingress / Domain (Rancher)

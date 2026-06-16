@@ -397,7 +397,22 @@ async function enrichInvoiceItemsWithReturnable<
   });
 }
 
-async function findReturnableInvoiceItem(customerId: number, productId: number) {
+function isWithinReturnWindow(soldAt: Date): boolean {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 6);
+  return soldAt >= cutoff;
+}
+
+type ReturnableItemLookup =
+  | { status: 'ok'; invoiceId: number; invoiceNo: string; soldAt: string; exchangeRate: number; sourceInvoiceItemId: number; unitPrice: number; returnableQty: number; product: { id: number; sku: string; barcode: string | null; name: string } }
+  | { status: 'never_purchased' }
+  | { status: 'too_old'; lastPurchaseDate: string }
+  | { status: 'fully_returned'; lastPurchaseDate: string };
+
+async function findReturnableInvoiceItem(
+  customerId: number,
+  productId: number
+): Promise<ReturnableItemLookup> {
   const items = await prisma.invoiceItem.findMany({
     where: {
       productId,
@@ -405,22 +420,44 @@ async function findReturnableInvoiceItem(customerId: number, productId: number) 
     },
     orderBy: { invoice: { createdAt: 'desc' } },
     include: {
-      invoice: { select: { id: true, invoiceNo: true, createdAt: true } },
+      invoice: {
+        select: {
+          id: true,
+          invoiceNo: true,
+          createdAt: true,
+          exchangeRate: true,
+        },
+      },
       product: {
         select: { id: true, sku: true, barcode: true, name: true },
       },
     },
   });
 
+  if (items.length === 0) {
+    return { status: 'never_purchased' };
+  }
+
   const returnedMap = await getReturnedQtyMap(items.map((item) => item.id));
+  const mostRecent = items[0];
+  const mostRecentDate = mostRecent.invoice.createdAt;
 
   for (const item of items) {
+    if (!isWithinReturnWindow(item.invoice.createdAt)) continue;
+
     const returnedQty = returnedMap.get(item.id) ?? 0;
     const returnableQty = Math.max(0, item.quantity - returnedQty);
     if (returnableQty > 0) {
+      const rate =
+        toFloat(item.invoice.exchangeRate) > 0
+          ? toFloat(item.invoice.exchangeRate)
+          : 1;
       return {
+        status: 'ok',
         invoiceId: item.invoice.id,
         invoiceNo: item.invoice.invoiceNo,
+        soldAt: item.invoice.createdAt.toISOString(),
+        exchangeRate: rate,
         sourceInvoiceItemId: item.id,
         unitPrice: toFloat(item.unitPrice),
         returnableQty,
@@ -429,7 +466,17 @@ async function findReturnableInvoiceItem(customerId: number, productId: number) 
     }
   }
 
-  return null;
+  if (!isWithinReturnWindow(mostRecentDate)) {
+    return {
+      status: 'too_old',
+      lastPurchaseDate: mostRecentDate.toISOString(),
+    };
+  }
+
+  return {
+    status: 'fully_returned',
+    lastPurchaseDate: mostRecentDate.toISOString(),
+  };
 }
 
 async function getRecentSoldProducts(
@@ -1278,18 +1325,11 @@ app.get<{ Querystring: { customerId?: string; productId?: string } }>(
     }
 
     const match = await findReturnableInvoiceItem(customerId, productId);
-    if (!match) {
-      return reply.status(404).send({
-        success: false,
-        message: 'Bu müşteri için iade alınabilecek satış satırı bulunamadı.',
-        errors: null,
-      });
-    }
 
     return {
       success: true,
       data: match,
-      message: 'Returnable item found.',
+      message: 'Returnable item lookup completed.',
     };
   }
 );
