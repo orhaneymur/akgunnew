@@ -41,7 +41,7 @@ spec:
             - name: PORT
               value: "3000"
             - name: APP_VERSION
-              value: "v1.8.3"
+              value: "v1.8.5"
             - name: DATABASE_URL
               value: mysql://root:akgunteknik123@akgunteknik-mysql:3306/akgunteknik
           readinessProbe:

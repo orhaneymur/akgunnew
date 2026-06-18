@@ -64,4 +64,21 @@ else
   echo "    = InvoiceItem FK zaten var"
 fi
 
+echo "==> Product detay kolonlari (v1.8.16+)..."
+for col_def in \
+  "brand VARCHAR(191) NULL" \
+  "model VARCHAR(191) NULL" \
+  "appearance VARCHAR(191) NULL" \
+  "quality VARCHAR(191) NULL" \
+  "rbmPrice DOUBLE NOT NULL DEFAULT 0" \
+  "description TEXT NULL"; do
+  col_name="${col_def%% *}"
+  if ! column_exists "Product" "$col_name"; then
+    mysql_exec "ALTER TABLE \`Product\` ADD COLUMN \`${col_name}\` ${col_def#* };"
+    echo "    + Product.${col_name} eklendi"
+  else
+    echo "    = Product.${col_name} zaten var"
+  fi
+done
+
 echo "==> Migration tamam."
