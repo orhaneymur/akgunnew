@@ -124,6 +124,10 @@ function App() {
   );
 
   const navigateTo: NavigateFn = useCallback((page, options) => {
+    if (page === 'dashboard') {
+      setDashboardRefreshKey((prev) => prev + 1);
+    }
+
     setActivePage(page);
     setMobileNavOpen(false);
 

@@ -61,9 +61,28 @@ type ReturnCartLine = {
   unitPriceTl: number;
   exchangeRate: number;
   returnQty: number;
-  maxReturnable: number;
+  /** API'den gelen toplam iade edilebilir miktar (aynı fatura kalemi satırları paylaşır) */
+  poolReturnable: number;
   isChinaReturn: boolean;
 };
+
+function cartQtyForSource(
+  cart: ReturnCartLine[],
+  sourceInvoiceItemId: number,
+  excludeRowId?: string
+): number {
+  return cart
+    .filter(
+      (row) =>
+        row.sourceInvoiceItemId === sourceInvoiceItemId && row.rowId !== excludeRowId
+    )
+    .reduce((sum, row) => sum + row.returnQty, 0);
+}
+
+function maxQtyForRow(cart: ReturnCartLine[], line: ReturnCartLine): number {
+  const others = cartQtyForSource(cart, line.sourceInvoiceItemId, line.rowId);
+  return Math.max(0, line.poolReturnable - others);
+}
 
 type WarningState = {
   title: string;
@@ -256,38 +275,32 @@ export default function SalesReturn({
           return;
         }
 
-        setCart((prev) => {
-          const existing = prev.find(
-            (row) => row.sourceInvoiceItemId === data.sourceInvoiceItemId
+        const usedInCart = cartQtyForSource(cart, data.sourceInvoiceItemId);
+        if (usedInCart >= data.returnableQty) {
+          notify(
+            'error',
+            'Bu ürün için sepette iade limiti dolu. Mevcut satırın miktarını artırın veya satırı düzenleyin.'
           );
-          if (existing) {
-            return prev.map((row) =>
-              row.sourceInvoiceItemId === data.sourceInvoiceItemId
-                ? {
-                    ...row,
-                    returnQty: Math.min(row.returnQty + 1, row.maxReturnable),
-                  }
-                : row
-            );
-          }
-          return [
-            ...prev,
-            {
-              rowId: `ret-${data.sourceInvoiceItemId}`,
-              productId: data.product.id,
-              productName: data.product.name,
-              productSku: data.product.sku,
-              sourceInvoiceItemId: data.sourceInvoiceItemId,
-              invoiceId: data.invoiceId,
-              invoiceNo: data.invoiceNo,
-              unitPriceTl: data.unitPrice,
-              exchangeRate: data.exchangeRate,
-              returnQty: 1,
-              maxReturnable: data.returnableQty,
-              isChinaReturn: false,
-            },
-          ];
-        });
+          return;
+        }
+
+        setCart((prev) => [
+          ...prev,
+          {
+            rowId: `ret-${data.sourceInvoiceItemId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            productId: data.product.id,
+            productName: data.product.name,
+            productSku: data.product.sku,
+            sourceInvoiceItemId: data.sourceInvoiceItemId,
+            invoiceId: data.invoiceId,
+            invoiceNo: data.invoiceNo,
+            unitPriceTl: data.unitPrice,
+            exchangeRate: data.exchangeRate,
+            returnQty: 1,
+            poolReturnable: data.returnableQty,
+            isChinaReturn: false,
+          },
+        ]);
 
         notify(
           'success',
@@ -305,7 +318,7 @@ export default function SalesReturn({
         setPickingProduct(false);
       }
     },
-    [selectedCustomer, closeSearchModal, notify]
+    [selectedCustomer, closeSearchModal, notify, cart]
   );
 
   const handleSearchKeyDown = useF2KeyboardNav({
@@ -330,6 +343,29 @@ export default function SalesReturn({
     if (activeLines.length === 0) {
       notify('error', 'İade için en az bir ürün ekleyin.');
       return;
+    }
+
+    const totalsBySource = new Map<number, { total: number; pool: number; name: string }>();
+    for (const line of activeLines) {
+      const entry = totalsBySource.get(line.sourceInvoiceItemId);
+      if (entry) {
+        entry.total += line.returnQty;
+      } else {
+        totalsBySource.set(line.sourceInvoiceItemId, {
+          total: line.returnQty,
+          pool: line.poolReturnable,
+          name: line.productName,
+        });
+      }
+    }
+    for (const [, info] of totalsBySource) {
+      if (info.total > info.pool) {
+        notify(
+          'error',
+          `${info.name} için toplam iade (${info.total}) limiti (${info.pool}) aşıyor.`
+        );
+        return;
+      }
     }
 
     const byInvoice = new Map<number, ReturnCartLine[]>();
@@ -416,7 +452,8 @@ export default function SalesReturn({
         <div>
           <h1 className="page-title">Satış İade</h1>
           <p className="text-sm text-slate-500">
-            Müşteri seçin, F2 ile ürün ekleyin — son 6 ay içindeki alımlar iade edilebilir
+            Müşteri seçin, F2 ile ürün ekleyin — aynı ürünü birden fazla satırda ekleyip her satırda
+            ayrı depo (Merkez / Çin iade) seçebilirsiniz
           </p>
         </div>
       </div>
@@ -535,6 +572,7 @@ export default function SalesReturn({
                     {cart.map((line) => {
                       const unitUsd = tlToUsd(line.unitPriceTl, line.exchangeRate);
                       const lineTotalUsd = roundPrice(unitUsd * line.returnQty);
+                      const rowMax = maxQtyForRow(cart, line);
 
                       return (
                         <tr
@@ -547,7 +585,7 @@ export default function SalesReturn({
                             </p>
                             <p className="text-xs text-slate-500">{line.productSku}</p>
                             <p className="text-caption text-slate-400">
-                              Max {line.maxReturnable} adet
+                              Bu satır max {rowMax} · toplam limit {line.poolReturnable} adet
                             </p>
                           </td>
                           <td className="px-4 py-3">
@@ -564,7 +602,7 @@ export default function SalesReturn({
                             <input
                               type="number"
                               min="0"
-                              max={line.maxReturnable}
+                              max={rowMax}
                               step="0.01"
                               value={line.returnQty || ''}
                               onChange={(e) => {
@@ -576,7 +614,7 @@ export default function SalesReturn({
                                           ...row,
                                           returnQty: Math.min(
                                             Math.max(0, val),
-                                            row.maxReturnable
+                                            maxQtyForRow(prev, row)
                                           ),
                                         }
                                       : row
@@ -599,6 +637,11 @@ export default function SalesReturn({
                                       : row
                                   )
                                 )
+                              }
+                              title={
+                                line.isChinaReturn
+                                  ? depotLabel('CIN_IADE_DEPO')
+                                  : depotLabel('MERKEZ_DEPO')
                               }
                               className="h-4 w-4 rounded border-slate-300 text-orange-600"
                             />

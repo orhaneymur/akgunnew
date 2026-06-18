@@ -2796,22 +2796,35 @@ app.post<{
 
       const normalizedItems: StoreItem[] = [];
 
+      const requestedBySource = new Map<number, number>();
       for (const item of items) {
         if (!item.sourceInvoiceItemId || item.quantity <= 0) {
           throw new Error('Her iade satırı için geçerli miktar ve fatura kalemi seçin.');
         }
+        requestedBySource.set(
+          item.sourceInvoiceItemId,
+          (requestedBySource.get(item.sourceInvoiceItemId) ?? 0) + item.quantity
+        );
+      }
 
-        const sourceLine = sourceItemMap.get(item.sourceInvoiceItemId);
+      for (const [sourceItemId, requestedQty] of requestedBySource) {
+        const sourceLine = sourceItemMap.get(sourceItemId);
         if (!sourceLine) {
           throw new Error('İade kalemi kaynak faturada bulunamadı.');
         }
-
         const alreadyReturned = returnedMap.get(sourceLine.id) ?? 0;
         const returnableQty = sourceLine.quantity - alreadyReturned;
-        if (item.quantity > returnableQty) {
+        if (requestedQty > returnableQty) {
           throw new Error(
-            `${sourceLine.id} numaralı satır için en fazla ${returnableQty} adet iade alınabilir.`
+            `${sourceLine.id} numaralı satır için en fazla ${returnableQty} adet iade alınabilir (istenen: ${requestedQty}).`
           );
+        }
+      }
+
+      for (const item of items) {
+        const sourceLine = sourceItemMap.get(item.sourceInvoiceItemId!);
+        if (!sourceLine) {
+          throw new Error('İade kalemi kaynak faturada bulunamadı.');
         }
 
         normalizedItems.push({

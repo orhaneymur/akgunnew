@@ -106,6 +106,10 @@ export default function Dashboard({
   }, []);
 
   useEffect(() => {
+    setEditingInvoiceId(null);
+  }, [refreshKey]);
+
+  useEffect(() => {
     if (editingInvoiceId === null) {
       void loadDashboard();
     }
