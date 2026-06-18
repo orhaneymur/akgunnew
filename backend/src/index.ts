@@ -3437,6 +3437,13 @@ app.put<{
     costPrice?: number;
     priceTl?: number;
     priceUsd?: number;
+    categoryId?: number | null;
+    brand?: string | null;
+    model?: string | null;
+    appearance?: string | null;
+    quality?: string | null;
+    rbmPrice?: number;
+    description?: string | null;
   };
 }>('/api/products/:id', async (request, reply) => {
   const id = Number(request.params.id);
