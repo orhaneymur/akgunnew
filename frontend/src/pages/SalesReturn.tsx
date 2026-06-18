@@ -93,10 +93,14 @@ function maxQtyForRow(cart: ReturnCartLine[], line: ReturnCartLine): number {
   return Math.max(0, line.poolReturnable - others);
 }
 
+type ReturnableOk = Extract<ReturnableLookup, { status: 'ok' }>;
+
 type WarningState = {
   title: string;
   message: string;
   product?: F2Product;
+  fromLine?: ReturnCartLine;
+  fromLookup?: ReturnableOk;
   allowForce?: boolean;
 };
 
@@ -293,6 +297,75 @@ export default function SalesReturn({
     [notify, rates.usd]
   );
 
+  const addDiscretionaryFromLine = useCallback(
+    (line: ReturnCartLine) => {
+      setCart((prev) => [
+        ...prev,
+        {
+          rowId: newRowId('manual', line.productId),
+          productId: line.productId,
+          productName: line.productName,
+          productSku: line.productSku,
+          sourceInvoiceItemId: 0,
+          invoiceId: 0,
+          invoiceNo: 'İnsiyatif',
+          unitPriceTl: line.unitPriceTl,
+          exchangeRate: line.exchangeRate,
+          returnQty: 1,
+          poolReturnable: 99999,
+          isChinaReturn: false,
+          manualOverride: true,
+        },
+      ]);
+      notify(
+        'success',
+        `${line.productName} insiyatif kalem olarak eklendi — fiyatı satırda düzenleyebilirsiniz.`
+      );
+      setWarning(null);
+    },
+    [notify]
+  );
+
+  const addDiscretionaryFromLookup = useCallback(
+    (product: F2Product, data: ReturnableOk) => {
+      setCart((prev) => [
+        ...prev,
+        {
+          rowId: newRowId('manual', data.product.id),
+          productId: data.product.id,
+          productName: data.product.name,
+          productSku: data.product.sku,
+          sourceInvoiceItemId: 0,
+          invoiceId: 0,
+          invoiceNo: 'İnsiyatif',
+          unitPriceTl: data.unitPrice,
+          exchangeRate: data.exchangeRate,
+          returnQty: 1,
+          poolReturnable: 99999,
+          isChinaReturn: false,
+          manualOverride: true,
+        },
+      ]);
+      notify(
+        'success',
+        `${product.name} insiyatif olarak sepete eklendi — kayıtlı limit aşıldı, fiyatı satırda düzenleyebilirsiniz.`
+      );
+      setWarning(null);
+    },
+    [notify]
+  );
+
+  const handleWarningForce = useCallback(() => {
+    if (!warning) return;
+    if (warning.fromLine) {
+      addDiscretionaryFromLine(warning.fromLine);
+    } else if (warning.fromLookup && warning.product) {
+      addDiscretionaryFromLookup(warning.product, warning.fromLookup);
+    } else if (warning.product) {
+      addManualReturnLine(warning.product);
+    }
+  }, [warning, addDiscretionaryFromLine, addDiscretionaryFromLookup, addManualReturnLine]);
+
   const duplicateReturnLine = useCallback(
     (line: ReturnCartLine) => {
       let added = false;
@@ -317,10 +390,12 @@ export default function SalesReturn({
       if (added) {
         notify('success', 'Ayrı kalem eklendi — Çin iade tikini satır satır işaretleyin.');
       } else {
-        notify(
-          'error',
-          'Toplam iade limiti doldu. Yeni kalem için mevcut satırlardan adet azaltın.'
-        );
+        setWarning({
+          title: 'Kayıtlı iade limiti',
+          message: `Bu fatura kalemi için kayıtlı iade hakkı (${line.poolReturnable} adet) sepette dolmuş. Müşteri başka tarihte almış olabilir — insiyatif kalem ekleyebilirsiniz.`,
+          fromLine: line,
+          allowForce: true,
+        });
       }
     },
     [notify]
@@ -356,9 +431,10 @@ export default function SalesReturn({
         }
 
         let added = false;
+        let usedQty = 0;
         setCart((prev) => {
-          const used = cartQtyForSource(prev, data.sourceInvoiceItemId);
-          if (used >= data.returnableQty) {
+          usedQty = cartQtyForSource(prev, data.sourceInvoiceItemId);
+          if (usedQty >= data.returnableQty) {
             return prev;
           }
           added = true;
@@ -382,10 +458,13 @@ export default function SalesReturn({
         });
 
         if (!added) {
-          notify(
-            'error',
-            'Bu ürün için sepetteki toplam adet limite ulaştı. Satırdaki + ile ayrı kalem ekleyin veya adetleri bölün.'
-          );
+          setWarning({
+            title: 'Kayıtlı iade limiti',
+            message: `Fatura ${data.invoiceNo} kaydında bu ürün için ${data.returnableQty} adet iade hakkı görünüyor; sepette ${usedQty} adet var. Müşteri başka tarihte almış olabilir — insiyatif ekleyebilirsiniz.`,
+            product,
+            fromLookup: data,
+            allowForce: true,
+          });
           return;
         }
 
@@ -885,13 +964,14 @@ export default function SalesReturn({
               </div>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
-              {warning.allowForce && warning.product && (
+              {warning.allowForce &&
+                (warning.product || warning.fromLine || warning.fromLookup) && (
                 <button
                   type="button"
-                  onClick={() => addManualReturnLine(warning.product!)}
+                  onClick={handleWarningForce}
                   className="flex-1 rounded-xl bg-amber-600 py-3 text-sm font-semibold text-white hover:bg-amber-500"
                 >
-                  Yine de Sepete Ekle
+                  Yine de İnsiyatif Ekle
                 </button>
               )}
               <button
