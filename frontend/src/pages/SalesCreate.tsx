@@ -532,48 +532,24 @@ export default function SalesCreate({
   const addProductToCart = useCallback(
     (product: F2Product | Product) => {
       const { unitPriceUsd, costUsd } = resolveProductUsd(product);
+      const rowId = `row-${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      lastAddedRowId.current = rowId;
 
-      setCart((prev) => {
-        const existingNewLine = prev.find(
-          (item) => item.product.id === product.id && !item.sourceInvoiceItemId
-        );
-        if (existingNewLine) {
-          lastAddedRowId.current = existingNewLine.rowId;
-          return prev.map((item) =>
-            item.rowId === existingNewLine.rowId
-              ? { ...item, quantity: item.quantity + 1 }
-              : item
-          );
-        }
-
-        const existingLine = prev.find((item) => item.product.id === product.id);
-        if (existingLine && isEditMode) {
-          lastAddedRowId.current = existingLine.rowId;
-          return prev.map((item) =>
-            item.rowId === existingLine.rowId
-              ? { ...item, quantity: item.quantity + 1 }
-              : item
-          );
-        }
-
-        const rowId = `row-${product.id}-${Date.now()}`;
-        lastAddedRowId.current = rowId;
-        return [
-          ...prev,
-          {
-            rowId,
-            product,
-            quantity: 1,
-            unitPriceUsd,
-            discountPercent: 0,
-            costUsd,
-          },
-        ];
-      });
+      setCart((prev) => [
+        ...prev,
+        {
+          rowId,
+          product,
+          quantity: 1,
+          unitPriceUsd,
+          discountPercent: 0,
+          costUsd,
+        },
+      ]);
 
       closeF2Modal();
     },
-    [closeF2Modal, resolveProductUsd, isEditMode]
+    [closeF2Modal, resolveProductUsd]
   );
 
   const handleModalKeyDown = useF2KeyboardNav({
@@ -760,18 +736,20 @@ export default function SalesCreate({
             savedCustomer ? ` · ${savedCustomer.name}` : ''
           }${response.data.data?.totalAmountTl != null ? ` · ${formatUsd(totalUsd)}` : ''}`
         );
-        setCart([]);
-        setOrderNotes('');
-        setDueDate('');
-        setIsPreOrder(false);
-        setSelectedCustomer(null);
-        setCustomerSearch('');
-        onDataChange?.();
-        await loadInitData();
 
         if (shouldPrint) {
           window.print();
         }
+
+        setCart([]);
+        setOrderNotes('');
+        setDueDate('');
+        setIsPreOrder(false);
+        setShouldPrint(false);
+        setSelectedCustomer(null);
+        setCustomerSearch('');
+        onDataChange?.();
+        await loadInitData();
       }
     } catch (error) {
       const message =
@@ -1036,7 +1014,12 @@ export default function SalesCreate({
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
         {/* Sepet Tablosu */}
         <section className="xl:col-span-3 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-200 flex items-center gap-2 bg-slate-50">
+          {isPreOrder && (
+            <p className="hidden border-b border-amber-200 bg-amber-50 px-5 py-2 text-center text-sm font-bold uppercase tracking-wide text-amber-800 print:block">
+              Ön Sipariş — Stok Düşülmedi
+            </p>
+          )}
+          <div className="px-5 py-3 border-b border-slate-200 flex items-center gap-2 bg-slate-50 print:bg-white">
             <ShoppingCart className="w-5 h-5 text-indigo-600" />
             <h2 className="font-semibold text-slate-800">Akıllı Sepet</h2>
             <span className="text-sm text-slate-500">({cart.length} kalem)</span>
