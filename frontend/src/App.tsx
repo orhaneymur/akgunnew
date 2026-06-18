@@ -345,7 +345,7 @@ function App() {
     <div className="flex min-h-[100dvh] overflow-x-hidden bg-slate-100 text-slate-900">
       {notification && (
         <div
-          className={`fixed z-[60] px-4 py-3 text-sm font-medium text-white shadow-lg sm:text-base ${
+          className={`fixed z-[60] px-4 py-3 text-sm font-medium text-white shadow-lg print:hidden sm:text-base ${
             notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'
           } bottom-4 left-4 right-4 rounded-lg sm:bottom-auto sm:left-auto sm:right-4 sm:top-4 sm:max-w-md`}
         >
@@ -373,7 +373,7 @@ function App() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm">
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm print:hidden">
           <div className="flex flex-col gap-3 px-3 py-2.5 sm:px-6 sm:py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
@@ -464,7 +464,7 @@ function App() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-x-hidden p-3 sm:p-4 lg:p-6">{pageContent}</main>
+        <main className="flex-1 overflow-x-hidden p-3 sm:p-4 lg:p-6 print:p-0">{pageContent}</main>
       </div>
     </div>
   );

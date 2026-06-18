@@ -41,7 +41,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-50 flex w-[min(100vw-3rem,17rem)] flex-col bg-slate-900 text-slate-200 shadow-xl transition-transform duration-300 ease-in-out lg:static lg:z-auto lg:w-64 lg:shrink-0 lg:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-50 flex w-[min(100vw-3rem,17rem)] flex-col bg-slate-900 text-slate-200 shadow-xl transition-transform duration-300 ease-in-out print:hidden lg:static lg:z-auto lg:w-64 lg:shrink-0 lg:translate-x-0 ${
         mobileOpen ? 'translate-x-0' : '-translate-x-full'
       }`}
       aria-label="Ana menü"

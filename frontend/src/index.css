@@ -206,3 +206,22 @@
     border-radius: 9999px;
   }
 }
+
+@media print {
+  body {
+    background: white !important;
+  }
+
+  main {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  input,
+  select,
+  textarea {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+}

@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 BACKEND_IMAGE="${BACKEND_IMAGE:-since1907/akgun-backend:v1.8.5}"
-FRONTEND_IMAGE="${FRONTEND_IMAGE:-since1907/akgun-frontend:v1.8.17}"
+FRONTEND_IMAGE="${FRONTEND_IMAGE:-since1907/akgun-frontend:v1.8.18}"
 
 echo "==> Git guncelleme (orhan branch)..."
 git fetch origin orhan
@@ -60,6 +60,9 @@ kubectl get svc akgunteknik-frontend
 echo ""
 echo "==> Backend imaj:"
 kubectl get deployment akgunteknik-backend -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
+
+echo "==> Frontend imaj:"
+kubectl get deployment akgunteknik-frontend -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
 
 echo "==> Calisan backend podlari:"
 kubectl get pods -l app=akgunteknik-backend --field-selector=status.phase=Running \

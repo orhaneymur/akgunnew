@@ -65,20 +65,41 @@ else
 fi
 
 echo "==> Product detay kolonlari (v1.8.16+)..."
-for col_def in \
-  "brand VARCHAR(191) NULL" \
-  "model VARCHAR(191) NULL" \
-  "appearance VARCHAR(191) NULL" \
-  "quality VARCHAR(191) NULL" \
-  "rbmPrice DOUBLE NOT NULL DEFAULT 0" \
-  "description TEXT NULL"; do
-  col_name="${col_def%% *}"
-  if ! column_exists "Product" "$col_name"; then
-    mysql_exec "ALTER TABLE \`Product\` ADD COLUMN \`${col_name}\` ${col_def#* };"
-    echo "    + Product.${col_name} eklendi"
-  else
-    echo "    = Product.${col_name} zaten var"
-  fi
-done
+if ! column_exists "Product" "brand"; then
+  mysql_exec "ALTER TABLE \`Product\` ADD COLUMN \`brand\` VARCHAR(191) NULL;"
+  echo "    + Product.brand eklendi"
+else
+  echo "    = Product.brand zaten var"
+fi
+if ! column_exists "Product" "model"; then
+  mysql_exec "ALTER TABLE \`Product\` ADD COLUMN \`model\` VARCHAR(191) NULL;"
+  echo "    + Product.model eklendi"
+else
+  echo "    = Product.model zaten var"
+fi
+if ! column_exists "Product" "appearance"; then
+  mysql_exec "ALTER TABLE \`Product\` ADD COLUMN \`appearance\` VARCHAR(191) NULL;"
+  echo "    + Product.appearance eklendi"
+else
+  echo "    = Product.appearance zaten var"
+fi
+if ! column_exists "Product" "quality"; then
+  mysql_exec "ALTER TABLE \`Product\` ADD COLUMN \`quality\` VARCHAR(191) NULL;"
+  echo "    + Product.quality eklendi"
+else
+  echo "    = Product.quality zaten var"
+fi
+if ! column_exists "Product" "rbmPrice"; then
+  mysql_exec "ALTER TABLE \`Product\` ADD COLUMN \`rbmPrice\` DOUBLE NOT NULL DEFAULT 0;"
+  echo "    + Product.rbmPrice eklendi"
+else
+  echo "    = Product.rbmPrice zaten var"
+fi
+if ! column_exists "Product" "description"; then
+  mysql_exec "ALTER TABLE \`Product\` ADD COLUMN \`description\` TEXT NULL;"
+  echo "    + Product.description eklendi"
+else
+  echo "    = Product.description zaten var"
+fi
 
 echo "==> Migration tamam."

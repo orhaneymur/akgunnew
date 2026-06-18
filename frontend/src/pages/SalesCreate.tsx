@@ -738,18 +738,20 @@ export default function SalesCreate({
         );
 
         if (shouldPrint) {
-          window.print();
+          window.setTimeout(() => window.print(), 150);
         }
 
-        setCart([]);
-        setOrderNotes('');
-        setDueDate('');
-        setIsPreOrder(false);
-        setShouldPrint(false);
-        setSelectedCustomer(null);
-        setCustomerSearch('');
-        onDataChange?.();
-        await loadInitData();
+        window.setTimeout(() => {
+          setCart([]);
+          setOrderNotes('');
+          setDueDate('');
+          setIsPreOrder(false);
+          setShouldPrint(false);
+          setSelectedCustomer(null);
+          setCustomerSearch('');
+          onDataChange?.();
+          void loadInitData();
+        }, shouldPrint ? 800 : 0);
       }
     } catch (error) {
       const message =
@@ -806,7 +808,7 @@ export default function SalesCreate({
       </div>
 
       {/* ÜST 4 KUTU */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 print:hidden">
         {/* Kutu 1 — Evrak */}
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-3">
           <h2 className="text-sm font-bold text-indigo-700 border-b border-indigo-100 pb-2">
@@ -1173,12 +1175,12 @@ export default function SalesCreate({
         </section>
 
         {/* Fintech Özet Paneli */}
-        <aside className="h-fit space-y-4 rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 shadow-sm sm:p-5 xl:col-span-1 xl:sticky xl:top-4">
-          <h2 className="font-bold text-slate-800 text-center border-b border-slate-200 pb-2">
+        <aside className="h-fit space-y-4 rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 shadow-sm sm:p-5 xl:col-span-1 xl:sticky xl:top-4 print:border-0 print:shadow-none print:p-0">
+          <h2 className="border-b border-slate-200 pb-2 text-center font-bold text-slate-800">
             Fatura Özeti
           </h2>
 
-          <div>
+          <div className="print:hidden">
             <label className={labelClass}>Döviz Kuru (USD → TL)</label>
             <input
               type="number"
@@ -1220,7 +1222,7 @@ export default function SalesCreate({
             </p>
           </div>
 
-          <div className="space-y-2 pt-2 border-t border-slate-200">
+          <div className="space-y-2 border-t border-slate-200 pt-2 print:hidden">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -1243,7 +1245,7 @@ export default function SalesCreate({
             </label>
           </div>
 
-          <div>
+          <div className="print:hidden">
             <label className={labelClass}>İşlemi Yapan</label>
             <select
               value={processedBy}
