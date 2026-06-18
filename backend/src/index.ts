@@ -447,23 +447,21 @@ async function findReturnableInvoiceItem(
 
     const returnedQty = returnedMap.get(item.id) ?? 0;
     const returnableQty = Math.max(0, item.quantity - returnedQty);
-    if (returnableQty > 0) {
-      const rate =
-        toFloat(item.invoice.exchangeRate) > 0
-          ? toFloat(item.invoice.exchangeRate)
-          : 1;
-      return {
-        status: 'ok',
-        invoiceId: item.invoice.id,
-        invoiceNo: item.invoice.invoiceNo,
-        soldAt: item.invoice.createdAt.toISOString(),
-        exchangeRate: rate,
-        sourceInvoiceItemId: item.id,
-        unitPrice: toFloat(item.unitPrice),
-        returnableQty,
-        product: item.product,
-      };
-    }
+    const rate =
+      toFloat(item.invoice.exchangeRate) > 0
+        ? toFloat(item.invoice.exchangeRate)
+        : 1;
+    return {
+      status: 'ok',
+      invoiceId: item.invoice.id,
+      invoiceNo: item.invoice.invoiceNo,
+      soldAt: item.invoice.createdAt.toISOString(),
+      exchangeRate: rate,
+      sourceInvoiceItemId: item.id,
+      unitPrice: toFloat(item.unitPrice),
+      returnableQty,
+      product: item.product,
+    };
   }
 
   if (!isWithinReturnWindow(mostRecentDate)) {
@@ -2962,34 +2960,12 @@ app.post<{
       const sourceItemMap = new Map(
         sourceInvoice.items.map((line) => [line.id, line])
       );
-      const returnedMap = await getReturnedQtyMap(
-        sourceInvoice.items.map((line) => line.id)
-      );
 
       const normalizedItems: StoreItem[] = [];
 
-      const requestedBySource = new Map<number, number>();
       for (const item of items) {
         if (!item.sourceInvoiceItemId || item.quantity <= 0) {
           throw new Error('Her iade satırı için geçerli miktar ve fatura kalemi seçin.');
-        }
-        requestedBySource.set(
-          item.sourceInvoiceItemId,
-          (requestedBySource.get(item.sourceInvoiceItemId) ?? 0) + item.quantity
-        );
-      }
-
-      for (const [sourceItemId, requestedQty] of requestedBySource) {
-        const sourceLine = sourceItemMap.get(sourceItemId);
-        if (!sourceLine) {
-          throw new Error('İade kalemi kaynak faturada bulunamadı.');
-        }
-        const alreadyReturned = returnedMap.get(sourceLine.id) ?? 0;
-        const returnableQty = sourceLine.quantity - alreadyReturned;
-        if (requestedQty > returnableQty) {
-          throw new Error(
-            `${sourceLine.id} numaralı satır için en fazla ${returnableQty} adet iade alınabilir (istenen: ${requestedQty}).`
-          );
         }
       }
 
