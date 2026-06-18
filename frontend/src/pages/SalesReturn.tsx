@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, Package, RotateCcw, Save, Search, X } from 'lucide-react';
+import { AlertTriangle, Copy, Package, RotateCcw, Save, Search, X } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
 import F2ProductList from '../components/F2ProductList';
 import { useF2ProductSearch, type F2Product } from '../hooks/useF2ProductSearch';
@@ -66,6 +66,10 @@ type ReturnCartLine = {
   isChinaReturn: boolean;
   manualOverride?: boolean;
 };
+
+function newRowId(prefix: string, productId: number) {
+  return `${prefix}-${productId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
 
 function cartQtyForSource(
   cart: ReturnCartLine[],
@@ -265,7 +269,7 @@ export default function SalesReturn({
       setCart((prev) => [
         ...prev,
         {
-          rowId: `manual-${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          rowId: newRowId('manual', product.id),
           productId: product.id,
           productName: product.name,
           productSku: product.sku,
@@ -287,6 +291,39 @@ export default function SalesReturn({
       setWarning(null);
     },
     [notify, rates.usd]
+  );
+
+  const duplicateReturnLine = useCallback(
+    (line: ReturnCartLine) => {
+      let added = false;
+      setCart((prev) => {
+        if (!line.manualOverride) {
+          const used = cartQtyForSource(prev, line.sourceInvoiceItemId);
+          if (used >= line.poolReturnable) {
+            return prev;
+          }
+        }
+        added = true;
+        return [
+          ...prev,
+          {
+            ...line,
+            rowId: newRowId('dup', line.productId),
+            returnQty: 1,
+            isChinaReturn: false,
+          },
+        ];
+      });
+      if (added) {
+        notify('success', 'Ayrı kalem eklendi — Çin iade tikini satır satır işaretleyin.');
+      } else {
+        notify(
+          'error',
+          'Toplam iade limiti doldu. Yeni kalem için mevcut satırlardan adet azaltın.'
+        );
+      }
+    },
+    [notify]
   );
 
   const pickProductForReturn = useCallback(
@@ -318,38 +355,45 @@ export default function SalesReturn({
           return;
         }
 
-        const usedInCart = cartQtyForSource(cart, data.sourceInvoiceItemId);
-        if (usedInCart >= data.returnableQty) {
+        let added = false;
+        setCart((prev) => {
+          const used = cartQtyForSource(prev, data.sourceInvoiceItemId);
+          if (used >= data.returnableQty) {
+            return prev;
+          }
+          added = true;
+          return [
+            ...prev,
+            {
+              rowId: newRowId('ret', data.product.id),
+              productId: data.product.id,
+              productName: data.product.name,
+              productSku: data.product.sku,
+              sourceInvoiceItemId: data.sourceInvoiceItemId,
+              invoiceId: data.invoiceId,
+              invoiceNo: data.invoiceNo,
+              unitPriceTl: data.unitPrice,
+              exchangeRate: data.exchangeRate,
+              returnQty: 1,
+              poolReturnable: data.returnableQty,
+              isChinaReturn: false,
+            },
+          ];
+        });
+
+        if (!added) {
           notify(
             'error',
-            'Bu ürün için sepette iade limiti dolu. Mevcut satırın miktarını artırın veya satırı düzenleyin.'
+            'Bu ürün için sepetteki toplam adet limite ulaştı. Satırdaki + ile ayrı kalem ekleyin veya adetleri bölün.'
           );
           return;
         }
 
-        setCart((prev) => [
-          ...prev,
-          {
-            rowId: `ret-${data.sourceInvoiceItemId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            productId: data.product.id,
-            productName: data.product.name,
-            productSku: data.product.sku,
-            sourceInvoiceItemId: data.sourceInvoiceItemId,
-            invoiceId: data.invoiceId,
-            invoiceNo: data.invoiceNo,
-            unitPriceTl: data.unitPrice,
-            exchangeRate: data.exchangeRate,
-            returnQty: 1,
-            poolReturnable: data.returnableQty,
-            isChinaReturn: false,
-          },
-        ]);
-
         notify(
           'success',
-          `${data.product.name} sepete eklendi — son fiyat ${formatUsd(
+          `${data.product.name} yeni satır olarak eklendi (adet: 1) — ${formatUsd(
             roundPrice(data.unitPrice / data.exchangeRate)
-          )} (${data.invoiceNo})`
+          )} · ${data.invoiceNo}`
         );
       } catch (error) {
         const message =
@@ -361,7 +405,7 @@ export default function SalesReturn({
         setPickingProduct(false);
       }
     },
-    [selectedCustomer, closeSearchModal, notify, cart]
+    [selectedCustomer, closeSearchModal, notify]
   );
 
   const handleSearchKeyDown = useF2KeyboardNav({
@@ -519,8 +563,7 @@ export default function SalesReturn({
         <div>
           <h1 className="page-title">Satış İade</h1>
           <p className="text-sm text-slate-500">
-            Müşteri seçin, F2 ile ürün ekleyin — aynı ürünü birden fazla satırda ekleyip her satırda
-            ayrı depo (Merkez / Çin iade) seçebilirsiniz
+            Müşteri seçin, F2 ile ürün ekleyin — her seçim ayrı satır (adet 1). Bir satır Çin iade, diğeri stoğa çekmek için satırdaki + kullanın
           </p>
         </div>
       </div>
@@ -632,7 +675,7 @@ export default function SalesReturn({
                       <th className="w-28 px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                         Toplam ($)
                       </th>
-                      <th className="w-10 px-4 py-3" />
+                      <th className="w-20 px-4 py-3" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -765,14 +808,24 @@ export default function SalesReturn({
                             {formatUsd(lineTotalUsd)}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => removeLine(line.rowId)}
-                              className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                              title="Satırı kaldır"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
+                            <div className="flex items-center justify-end gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => duplicateReturnLine(line)}
+                                className="rounded p-1 text-slate-400 hover:bg-amber-50 hover:text-amber-700"
+                                title="Aynı üründen ayrı kalem ekle (farklı depo için)"
+                              >
+                                <Copy className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeLine(line.rowId)}
+                                className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                title="Satırı kaldır"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
