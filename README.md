@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.4` · `since1907/akgun-frontend:v1.8.15`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.5` · `since1907/akgun-frontend:v1.8.16`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -356,6 +356,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.8.10 | Ana sayfa Son Faturalar — tıklayınca fatura düzenleme (Satış Yap ekranı, aynı sayfa) |
 | v1.8.11 | Satış sepetinde yön tuşları ile İndirim ↔ Adet ↔ Fiyat alanları arası klavye gezinme |
 | v1.8.12 | Fatura düzenlemede (ana sayfa / fatura listesi) F2 ile ürün ekleme düzeltmesi |
+| v1.8.16 | İade insiyatif ekleme; stok kartı genişletilmiş form; cari ödeme düzenleme |
 | v1.8.15 | Ana Sayfa butonu veriyi yeniler; satış iade — aynı ürün birden fazla satır, satır başına Çin iade tik |
 | v1.8.14 | UI ölçek %80 (yaklaşık %20 küçültme); tutarlı `btn` / `page-title` / `text-caption` sınıfları; sidebar px yazı boyutları düzeltildi |
 | v1.8.13 | Fatura düzenlemede tekrar F2 basınca sayfanın başa dönmesi / sepet sıfırlanması düzeltmesi |

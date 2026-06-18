@@ -1,0 +1,7 @@
+-- Stok kartı detay alanları
+ALTER TABLE `Product` ADD COLUMN `brand` VARCHAR(191) NULL;
+ALTER TABLE `Product` ADD COLUMN `model` VARCHAR(191) NULL;
+ALTER TABLE `Product` ADD COLUMN `appearance` VARCHAR(191) NULL;
+ALTER TABLE `Product` ADD COLUMN `quality` VARCHAR(191) NULL;
+ALTER TABLE `Product` ADD COLUMN `rbmPrice` DOUBLE NOT NULL DEFAULT 0;
+ALTER TABLE `Product` ADD COLUMN `description` TEXT NULL;

@@ -2481,6 +2481,178 @@ app.post<{
   }
 });
 
+app.get<{ Querystring: { customerId?: string; page?: string; limit?: string } }>(
+  '/api/customers/payments',
+  async (request) => {
+    const { customerId, page, limit } = request.query;
+    const pagination = parseListPageQuery({ page, limit });
+    const parsedCustomerId = customerId ? Number(customerId) : undefined;
+
+    const where: Prisma.TransactionWhereInput = {
+      customerId: { not: null },
+    };
+    if (parsedCustomerId && Number.isFinite(parsedCustomerId) && parsedCustomerId > 0) {
+      where.customerId = parsedCustomerId;
+    }
+
+    const [payments, totalCount] = await Promise.all([
+      prisma.transaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: pagination.limit,
+        skip: pagination.skip,
+        include: {
+          customer: { select: { id: true, code: true, name: true, balance: true } },
+          safe: { select: { id: true, name: true, currency: true, balance: true } },
+        },
+      }),
+      prisma.transaction.count({ where }),
+    ]);
+
+    return {
+      ...buildListResponse(payments, totalCount, pagination.limit, pagination.page),
+      message: 'Customer payments retrieved successfully.',
+    };
+  }
+);
+
+app.put<{
+  Params: { id: string };
+  Body: {
+    customerId?: number;
+    safeId?: number;
+    amount?: number;
+    type?: 'GIRIS' | 'CIKIS';
+    description?: string;
+  };
+}>('/api/customers/payment/:id', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Geçersiz işlem id.',
+      errors: null,
+    });
+  }
+
+  const body = request.body ?? {};
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.transaction.findUnique({
+        where: { id },
+        include: { customer: true, safe: true },
+      });
+
+      if (!existing || !existing.customerId) {
+        throw new Error('Düzenlenebilir cari ödeme kaydı bulunamadı.');
+      }
+
+      const nextCustomerId = body.customerId ?? existing.customerId;
+      const nextSafeId = body.safeId ?? existing.safeId;
+      const nextAmount = body.amount ?? existing.amount;
+      const nextType = body.type ?? existing.type;
+      const nextDescription =
+        body.description !== undefined
+          ? body.description.trim() ||
+            (nextType === 'GIRIS'
+              ? `${existing.customer!.code} cari tahsilat`
+              : `${existing.customer!.code} cari ödeme`)
+          : existing.description;
+
+      if (!nextCustomerId || !nextSafeId || !nextAmount || nextAmount <= 0) {
+        throw new Error('Müşteri, kasa ve tutar zorunludur.');
+      }
+
+      if (nextType !== 'GIRIS' && nextType !== 'CIKIS') {
+        throw new Error('Geçersiz işlem tipi.');
+      }
+
+      const [nextCustomer, nextSafe] = await Promise.all([
+        tx.customer.findUnique({ where: { id: nextCustomerId } }),
+        tx.safe.findUnique({ where: { id: nextSafeId } }),
+      ]);
+
+      if (!nextCustomer) throw new Error('Müşteri bulunamadı.');
+      if (!nextSafe) throw new Error('Kasa bulunamadı.');
+
+      if (existing.type === 'GIRIS') {
+        await tx.customer.update({
+          where: { id: existing.customerId },
+          data: { balance: { increment: existing.amount } },
+        });
+        await tx.safe.update({
+          where: { id: existing.safeId },
+          data: { balance: { decrement: existing.amount } },
+        });
+      } else {
+        await tx.customer.update({
+          where: { id: existing.customerId },
+          data: { balance: { decrement: existing.amount } },
+        });
+        await tx.safe.update({
+          where: { id: existing.safeId },
+          data: { balance: { increment: existing.amount } },
+        });
+      }
+
+      if (nextType === 'GIRIS') {
+        await tx.customer.update({
+          where: { id: nextCustomerId },
+          data: { balance: { decrement: nextAmount } },
+        });
+        await tx.safe.update({
+          where: { id: nextSafeId },
+          data: { balance: { increment: nextAmount } },
+        });
+      } else {
+        if (nextSafe.balance < nextAmount) {
+          throw new Error(
+            `Kasa bakiyesi yetersiz. Mevcut: ${nextSafe.balance}, istenen: ${nextAmount}`
+          );
+        }
+        await tx.customer.update({
+          where: { id: nextCustomerId },
+          data: { balance: { increment: nextAmount } },
+        });
+        await tx.safe.update({
+          where: { id: nextSafeId },
+          data: { balance: { decrement: nextAmount } },
+        });
+      }
+
+      return tx.transaction.update({
+        where: { id },
+        data: {
+          customerId: nextCustomerId,
+          safeId: nextSafeId,
+          amount: nextAmount,
+          type: nextType,
+          description: nextDescription,
+        },
+        include: {
+          customer: { select: { id: true, code: true, name: true, balance: true } },
+          safe: { select: { id: true, name: true, currency: true, balance: true } },
+        },
+      });
+    });
+
+    return {
+      success: true,
+      data: updated,
+      message: 'Ödeme güncellendi.',
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Ödeme güncellenemedi.';
+    return reply.status(500).send({
+      success: false,
+      message,
+      errors: null,
+    });
+  }
+});
+
 app.get<{
   Querystring: {
     search?: string;
@@ -2916,27 +3088,162 @@ app.post<{
 
 app.post<{
   Body: {
-    sku: string;
-    name: string;
-    costPrice: number;
-    priceTl: number;
-    barcode?: string;
-    priceUsd?: number;
-    initialQuantity?: number;
+    customerId: number;
+    branchId: number;
+    safeId: number;
+    exchangeRate?: number;
+    items: Array<{
+      productId: number;
+      quantity: number;
+      unitPrice: number;
+      isChinaReturn?: boolean;
+    }>;
+    note?: string;
   };
-}>('/api/products', async (request, reply) => {
-  const { sku, name, costPrice, priceTl, barcode, priceUsd, initialQuantity } =
-    request.body;
+}>('/api/sales/return-discretionary', async (request, reply) => {
+  const { customerId, branchId, safeId, exchangeRate, items, note } = request.body;
 
-  if (!sku?.trim() || !name?.trim() || costPrice == null || priceTl == null) {
+  if (!customerId || !branchId || !safeId || !items?.length) {
     return reply.status(400).send({
       success: false,
-      message: 'SKU, ad, alış maliyeti ve satış fiyatı zorunludur.',
+      message: 'Müşteri, şube, kasa ve iade kalemleri zorunludur.',
       errors: null,
     });
   }
 
-  if (costPrice < 0 || priceTl < 0) {
+  try {
+    const invoice = await prisma.$transaction(async (tx) => {
+      const normalizedItems = items
+        .filter((item) => item.productId && item.quantity > 0)
+        .map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          isChinaReturn: item.isChinaReturn ?? false,
+        }));
+
+      if (normalizedItems.length === 0) {
+        throw new Error('Geçerli iade kalemi bulunamadı.');
+      }
+
+      for (const item of normalizedItems) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } });
+        if (!product) {
+          throw new Error(`Ürün bulunamadı (id: ${item.productId}).`);
+        }
+      }
+
+      const rate = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+      const totalAmountTl = normalizedItems.reduce(
+        (sum, item) => sum + item.quantity * item.unitPrice,
+        0
+      );
+      const totalAmountUsd = totalAmountTl / rate;
+
+      const invoiceNo = await generateReturnInvoiceNo(tx);
+      const merkezDepoId = await getDepotBranchId(tx, 'MERKEZ');
+      const cinIadeDepoId = await getDepotBranchId(tx, 'CIN_IADE');
+
+      const createdInvoice = await tx.invoice.create({
+        data: {
+          invoiceNo,
+          type: 'IADE',
+          customerId,
+          safeId,
+          branchId,
+          paymentMethod: 'Cari',
+          exchangeRate: rate,
+          deliveryType: 'Mağazadan Teslim',
+          totalAmountTl,
+          totalAmountUsd,
+          orderNotes:
+            note?.trim() ||
+            'İnsiyatif iade — satın alma kaydı doğrulanmadı veya süre dışı',
+          items: {
+            create: normalizedItems.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.quantity * item.unitPrice,
+            })),
+          },
+        },
+        include: { items: true },
+      });
+
+      for (const item of normalizedItems) {
+        const stockBranchId = item.isChinaReturn ? cinIadeDepoId : merkezDepoId;
+        await incrementStock(tx, item.productId, stockBranchId, item.quantity);
+      }
+
+      await tx.customer.update({
+        where: { id: customerId },
+        data: { balance: { decrement: totalAmountTl } },
+      });
+
+      return createdInvoice;
+    });
+
+    return reply.status(201).send({
+      success: true,
+      data: invoice,
+      message: 'Discretionary return recorded successfully.',
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'İnsiyatif iade kaydedilemedi.';
+    return reply.status(500).send({
+      success: false,
+      message,
+      errors: null,
+    });
+  }
+});
+
+app.post<{
+  Body: {
+    sku?: string;
+    name: string;
+    costPrice: number;
+    priceTl?: number;
+    barcode?: string;
+    priceUsd?: number;
+    initialQuantity?: number;
+    categoryId?: number;
+    brand?: string;
+    model?: string;
+    appearance?: string;
+    quality?: string;
+    rbmPrice?: number;
+    description?: string;
+  };
+}>('/api/products', async (request, reply) => {
+  const {
+    sku,
+    name,
+    costPrice,
+    priceTl,
+    barcode,
+    priceUsd,
+    initialQuantity,
+    categoryId,
+    brand,
+    model,
+    appearance,
+    quality,
+    rbmPrice,
+    description,
+  } = request.body;
+
+  if (!name?.trim() || costPrice == null || priceUsd == null) {
+    return reply.status(400).send({
+      success: false,
+      message: 'Stok adı, alış fiyatı (USD) ve satış fiyatı (USD) zorunludur.',
+      errors: null,
+    });
+  }
+
+  if (costPrice < 0 || priceUsd < 0 || (rbmPrice != null && rbmPrice < 0)) {
     return reply.status(400).send({
       success: false,
       message: 'Fiyatlar negatif olamaz.',
@@ -2944,16 +3251,33 @@ app.post<{
     });
   }
 
+  const resolvedSku =
+    sku?.trim() ||
+    `SK${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const resolvedPriceTl =
+    priceTl != null && priceTl >= 0
+      ? priceTl
+      : priceUsd > 0
+        ? priceUsd * 46.37
+        : 0;
+
   try {
     const product = await prisma.$transaction(async (tx) => {
       const created = await tx.product.create({
         data: {
-          sku: sku.trim(),
+          sku: resolvedSku,
           name: name.trim(),
           costPrice,
-          priceTl,
-          priceUsd: priceUsd ?? (priceTl > 0 ? priceTl / 46.37 : 0),
+          priceTl: resolvedPriceTl,
+          priceUsd,
           barcode: barcode?.trim() || null,
+          categoryId: categoryId ?? null,
+          brand: brand?.trim() || null,
+          model: model?.trim() || null,
+          appearance: appearance?.trim() || null,
+          quality: quality?.trim() || null,
+          rbmPrice: rbmPrice ?? 0,
+          description: description?.trim() || null,
         },
       });
 
@@ -3133,7 +3457,7 @@ app.put<{
     });
   }
 
-  const { sku, name, barcode, costPrice, priceTl, priceUsd } = request.body ?? {};
+  const { sku, name, barcode, costPrice, priceTl, priceUsd, categoryId, brand, model, appearance, quality, rbmPrice, description } = request.body ?? {};
 
   if (name !== undefined && !name.trim()) {
     return reply.status(400).send({
@@ -3167,6 +3491,13 @@ app.put<{
         ...(costPrice !== undefined ? { costPrice } : {}),
         ...(priceTl !== undefined ? { priceTl } : {}),
         ...(priceUsd !== undefined ? { priceUsd } : {}),
+        ...(categoryId !== undefined ? { categoryId: categoryId ?? null } : {}),
+        ...(brand !== undefined ? { brand: brand?.trim() || null } : {}),
+        ...(model !== undefined ? { model: model?.trim() || null } : {}),
+        ...(appearance !== undefined ? { appearance: appearance?.trim() || null } : {}),
+        ...(quality !== undefined ? { quality: quality?.trim() || null } : {}),
+        ...(rbmPrice !== undefined ? { rbmPrice } : {}),
+        ...(description !== undefined ? { description: description?.trim() || null } : {}),
       },
       include: {
         stocks: {

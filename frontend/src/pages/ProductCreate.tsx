@@ -1,18 +1,46 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { Package, PlusCircle, Save } from 'lucide-react';
-import { API_BASE, formatMoney } from '../lib/api';
+import { API_BASE, ensureArray, formatUsd, roundPrice } from '../lib/api';
+import { useExchangeRates } from '../hooks/useExchangeRates';
+
+type Category = {
+  id: number;
+  name: string;
+};
+
+const APPEARANCE_OPTIONS = [
+  { value: 'CITALI', label: 'Çıtalı' },
+  { value: 'CITASIZ', label: 'Çıtasız' },
+] as const;
+
+const QUALITY_OPTIONS = [
+  { value: 'A_KALITE', label: 'A Kalite' },
+  { value: 'A_PLUS', label: 'A Plus' },
+  { value: 'ORJINAL', label: 'Orjinal' },
+  { value: 'REVIZYON_ORJINAL', label: 'Revizyon Orjinal' },
+  { value: 'SERVIS_ORJINAL', label: 'Servis Orjinal' },
+  { value: 'OLED', label: 'OLED' },
+] as const;
 
 type ProductCreateProps = {
   onNotify?: (type: 'success' | 'error', message: string) => void;
 };
 
 export default function ProductCreate({ onNotify }: ProductCreateProps) {
-  const [sku, setSku] = useState('');
+  const { rates } = useExchangeRates();
+  const [categories, setCategories] = useState<Category[]>([]);
   const [name, setName] = useState('');
+  const [categoryId, setCategoryId] = useState<number | ''>('');
+  const [brand, setBrand] = useState('');
+  const [model, setModel] = useState('');
+  const [appearance, setAppearance] = useState('');
+  const [quality, setQuality] = useState('');
+  const [rbmPrice, setRbmPrice] = useState('');
+  const [costPriceUsd, setCostPriceUsd] = useState('');
+  const [priceUsd, setPriceUsd] = useState('');
+  const [description, setDescription] = useState('');
   const [barcode, setBarcode] = useState('');
-  const [costPrice, setCostPrice] = useState('');
-  const [priceTl, setPriceTl] = useState('');
   const [initialQuantity, setInitialQuantity] = useState('0');
   const [submitting, setSubmitting] = useState(false);
 
@@ -20,47 +48,85 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
     onNotify?.(type, message);
   };
 
+  useEffect(() => {
+    void axios
+      .get<{ success: boolean; data: Category[] }>(`${API_BASE}/api/settings/categories`)
+      .then((res) => {
+        if (res.data.success) setCategories(ensureArray(res.data.data));
+      })
+      .catch(() => {
+        /* kategoriler opsiyonel */
+      });
+  }, []);
+
+  const parsedCost = Number(costPriceUsd) || 0;
+  const parsedSale = Number(priceUsd) || 0;
+  const parsedRbm = Number(rbmPrice) || 0;
+  const margin =
+    parsedSale > 0 ? ((parsedSale - parsedCost) / parsedSale) * 100 : 0;
+
+  const generatedPreview = useMemo(() => {
+    const parts = [brand.trim(), model.trim(), name.trim()].filter(Boolean);
+    return parts.join(' ') || name.trim();
+  }, [brand, model, name]);
+
+  const resetForm = () => {
+    setName('');
+    setCategoryId('');
+    setBrand('');
+    setModel('');
+    setAppearance('');
+    setQuality('');
+    setRbmPrice('');
+    setCostPriceUsd('');
+    setPriceUsd('');
+    setDescription('');
+    setBarcode('');
+    setInitialQuantity('0');
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    const parsedCost = Number(costPrice);
-    const parsedPrice = Number(priceTl);
-    const parsedQty = Number(initialQuantity);
-
-    if (!sku.trim() || !name.trim()) {
-      notify('error', 'SKU ve ürün adı zorunludur.');
+    if (!name.trim()) {
+      notify('error', 'Stok adı zorunludur.');
       return;
     }
 
-    if (!costPrice || Number.isNaN(parsedCost) || parsedCost < 0) {
-      notify('error', 'Geçerli bir alış maliyeti girin.');
+    if (!costPriceUsd || Number.isNaN(parsedCost) || parsedCost < 0) {
+      notify('error', 'Geçerli bir alış fiyatı (USD) girin.');
       return;
     }
 
-    if (!priceTl || Number.isNaN(parsedPrice) || parsedPrice < 0) {
-      notify('error', 'Geçerli bir satış fiyatı girin.');
+    if (!priceUsd || Number.isNaN(parsedSale) || parsedSale < 0) {
+      notify('error', 'Geçerli bir satış fiyatı (USD) girin.');
       return;
     }
 
     setSubmitting(true);
     try {
       const response = await axios.post(`${API_BASE}/api/products`, {
-        sku: sku.trim(),
-        name: name.trim(),
-        barcode: barcode.trim() || undefined,
+        name: generatedPreview || name.trim(),
         costPrice: parsedCost,
-        priceTl: parsedPrice,
-        initialQuantity: Number.isNaN(parsedQty) ? 0 : parsedQty,
+        priceUsd: parsedSale,
+        priceTl: roundPrice(parsedSale * rates.usd),
+        barcode: barcode.trim() || undefined,
+        initialQuantity: Number(initialQuantity) || 0,
+        categoryId: categoryId !== '' ? Number(categoryId) : undefined,
+        brand: brand.trim() || undefined,
+        model: model.trim() || undefined,
+        appearance: appearance || undefined,
+        quality: quality || undefined,
+        rbmPrice: parsedRbm,
+        description: description.trim() || undefined,
       });
 
       if (response.data.success) {
-        notify('success', `Stok kartı oluşturuldu: ${response.data.data?.sku ?? sku}`);
-        setSku('');
-        setName('');
-        setBarcode('');
-        setCostPrice('');
-        setPriceTl('');
-        setInitialQuantity('0');
+        notify(
+          'success',
+          `Stok kartı oluşturuldu: ${response.data.data?.sku ?? generatedPreview}`
+        );
+        resetForm();
       }
     } catch (error) {
       const message =
@@ -73,136 +139,227 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
     }
   };
 
-  const parsedCost = Number(costPrice) || 0;
-  const parsedPrice = Number(priceTl) || 0;
-  const margin =
-    parsedPrice > 0 ? ((parsedPrice - parsedCost) / parsedPrice) * 100 : 0;
+  const fieldClass = 'field-input';
+  const labelClass = 'field-label';
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-center gap-3">
-        <div className="p-2.5 rounded-xl bg-indigo-600 text-white">
-          <PlusCircle className="w-5 h-5" />
+        <div className="rounded-xl bg-indigo-600 p-2.5 text-white">
+          <PlusCircle className="h-5 w-5" />
         </div>
         <div>
           <h1 className="page-title">Stok Kartı Oluştur</h1>
-          <p className="text-sm text-slate-500">
-            Yeni ürün tanımı — MERKEZ_DEPO stok kaydı otomatik açılır
+          <p className="page-subtitle">
+            Ürün tanımı — MERKEZ_DEPO stok kaydı otomatik açılır · SKU otomatik üretilir
           </p>
         </div>
       </div>
 
       <form
         onSubmit={handleSubmit}
-        className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5"
+        className="card-section overflow-hidden"
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Stok Kodu (SKU) <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={sku}
-              onChange={(e) => setSku(e.target.value.toUpperCase())}
-              required
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="IPH12-EKRAN"
-            />
+        <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
+          <div className="space-y-4 border-b border-slate-100 p-5 lg:border-b-0 lg:border-r">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-indigo-700">
+              Ürün Bilgileri
+            </h2>
+
+            <div>
+              <label className={labelClass}>Stok Adı *</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className={fieldClass}
+                placeholder="iPhone 12 Ekran"
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Kategori</label>
+              <select
+                value={categoryId}
+                onChange={(e) =>
+                  setCategoryId(e.target.value ? Number(e.target.value) : '')
+                }
+                className={fieldClass}
+              >
+                <option value="">Seçin...</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>Marka</label>
+                <input
+                  type="text"
+                  value={brand}
+                  onChange={(e) => setBrand(e.target.value)}
+                  className={fieldClass}
+                  placeholder="Apple"
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Model</label>
+                <input
+                  type="text"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className={fieldClass}
+                  placeholder="iPhone 12"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>Görünüm</label>
+                <select
+                  value={appearance}
+                  onChange={(e) => setAppearance(e.target.value)}
+                  className={fieldClass}
+                >
+                  <option value="">Seçin...</option>
+                  {APPEARANCE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Kalite</label>
+                <select
+                  value={quality}
+                  onChange={(e) => setQuality(e.target.value)}
+                  className={fieldClass}
+                >
+                  <option value="">Seçin...</option>
+                  {QUALITY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className={labelClass}>Barkod</label>
+              <input
+                type="text"
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                className={fieldClass}
+                placeholder="8690000000000"
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Başlangıç Stoğu (MERKEZ_DEPO)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={initialQuantity}
+                onChange={(e) => setInitialQuantity(e.target.value)}
+                className={`${fieldClass} sm:max-w-[10rem]`}
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Barkod
-            </label>
-            <input
-              type="text"
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="8690000000000"
-            />
+
+          <div className="space-y-4 bg-slate-50/60 p-5">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-emerald-700">
+              Fiyat & Açıklama
+            </h2>
+
+            <div>
+              <label className={labelClass}>RBM Fiyatı (USD)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rbmPrice}
+                onChange={(e) => setRbmPrice(e.target.value)}
+                className={fieldClass}
+                placeholder="0.00"
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Alış Fiyatı (USD) *</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={costPriceUsd}
+                onChange={(e) => setCostPriceUsd(e.target.value)}
+                required
+                className={fieldClass}
+                placeholder="0.00"
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Satış Fiyatı (USD) *</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={priceUsd}
+                onChange={(e) => setPriceUsd(e.target.value)}
+                required
+                className={fieldClass}
+                placeholder="0.00"
+              />
+            </div>
+
+            {parsedCost > 0 && parsedSale > 0 && (
+              <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-600">
+                <Package className="h-4 w-4 shrink-0 text-indigo-500" />
+                <span>
+                  Kâr: {formatUsd(parsedSale - parsedCost)} · Marj: {margin.toFixed(1)}%
+                </span>
+              </div>
+            )}
+
+            <div>
+              <label className={labelClass}>Açıklama</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={4}
+                className={`${fieldClass} resize-none`}
+                placeholder="Ürün notları, uyumluluk, tedarikçi bilgisi..."
+              />
+            </div>
+
+            {generatedPreview && (
+              <p className="text-caption text-slate-500">
+                Kayıt adı: <span className="font-medium text-slate-700">{generatedPreview}</span>
+              </p>
+            )}
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            Ürün Adı <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
-            placeholder="APPLE İPHONE 12 EKRAN"
-          />
+        <div className="border-t border-slate-100 bg-white px-5 py-4">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="btn btn-secondary"
+          >
+            <Save className="h-5 w-5" />
+            {submitting ? 'Kaydediliyor...' : 'Stok Kartını Kaydet'}
+          </button>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Alış Maliyeti (TL) <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={costPrice}
-              onChange={(e) => setCostPrice(e.target.value)}
-              required
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="0.00"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Satış Fiyatı (TL) <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={priceTl}
-              onChange={(e) => setPriceTl(e.target.value)}
-              required
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="0.00"
-            />
-          </div>
-        </div>
-
-        {parsedCost > 0 && parsedPrice > 0 && (
-          <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 text-sm text-slate-600 flex items-center gap-2">
-            <Package className="w-4 h-4 text-indigo-500" />
-            <span>
-              Birim kâr: {formatMoney(parsedPrice - parsedCost)} · Marj:{' '}
-              {margin.toFixed(1)}%
-            </span>
-          </div>
-        )}
-
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            Başlangıç Stoğu (MERKEZ_DEPO)
-          </label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={initialQuantity}
-            onChange={(e) => setInitialQuantity(e.target.value)}
-            className="w-full sm:w-48 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="flex items-center justify-center gap-2 w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white font-semibold px-6 py-3 rounded-xl transition-colors"
-        >
-          <Save className="w-5 h-5" />
-          {submitting ? 'Kaydediliyor...' : 'Stok Kartını Kaydet'}
-        </button>
       </form>
     </div>
   );

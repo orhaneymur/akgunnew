@@ -64,6 +64,7 @@ type ReturnCartLine = {
   /** API'den gelen toplam iade edilebilir miktar (aynı fatura kalemi satırları paylaşır) */
   poolReturnable: number;
   isChinaReturn: boolean;
+  manualOverride?: boolean;
 };
 
 function cartQtyForSource(
@@ -71,15 +72,19 @@ function cartQtyForSource(
   sourceInvoiceItemId: number,
   excludeRowId?: string
 ): number {
+  if (sourceInvoiceItemId <= 0) return 0;
   return cart
     .filter(
       (row) =>
-        row.sourceInvoiceItemId === sourceInvoiceItemId && row.rowId !== excludeRowId
+        !row.manualOverride &&
+        row.sourceInvoiceItemId === sourceInvoiceItemId &&
+        row.rowId !== excludeRowId
     )
     .reduce((sum, row) => sum + row.returnQty, 0);
 }
 
 function maxQtyForRow(cart: ReturnCartLine[], line: ReturnCartLine): number {
+  if (line.manualOverride) return 99999;
   const others = cartQtyForSource(cart, line.sourceInvoiceItemId, line.rowId);
   return Math.max(0, line.poolReturnable - others);
 }
@@ -87,6 +92,8 @@ function maxQtyForRow(cart: ReturnCartLine[], line: ReturnCartLine): number {
 type WarningState = {
   title: string;
   message: string;
+  product?: F2Product;
+  allowForce?: boolean;
 };
 
 type SalesReturnProps = {
@@ -222,29 +229,65 @@ export default function SalesReturn({
     }
   }, [f2Trigger, openSearchModal]);
 
-  const showLookupWarning = (data: ReturnableLookup) => {
+  const showLookupWarning = (data: ReturnableLookup, product: F2Product) => {
     if (data.status === 'never_purchased') {
       setWarning({
         title: 'Satın alma kaydı yok',
         message:
-          'Bu müşteri bu ürünü daha önce hiç satın almamış. İade alınamaz.',
+          'Bu müşteri bu ürünü sistemde satın almamış görünüyor. Eski kayıtlar için yine de iade alabilirsiniz.',
+        product,
+        allowForce: true,
       });
       return;
     }
     if (data.status === 'too_old') {
       setWarning({
         title: '6 aylık iade süresi doldu',
-        message: `Bu ürünün son alımı ${formatDate(data.lastPurchaseDate)} tarihinde yapılmış (6 aydan eski). İade alınamaz.`,
+        message: `Son alım ${formatDate(data.lastPurchaseDate)} (6 aydan eski). İnsiyatif olarak yine de ekleyebilirsiniz.`,
+        product,
+        allowForce: true,
       });
       return;
     }
     if (data.status === 'fully_returned') {
       setWarning({
         title: 'İade edilebilir miktar yok',
-        message: `Son alım ${formatDate(data.lastPurchaseDate)} tarihinde; ancak bu ürün için iade alınabilecek miktar kalmamış.`,
+        message: `Son alım ${formatDate(data.lastPurchaseDate)}; kayıtlı iade limiti dolmuş. Yine de manuel ekleyebilirsiniz.`,
+        product,
+        allowForce: true,
       });
     }
   };
+
+  const addManualReturnLine = useCallback(
+    (product: F2Product) => {
+      const unitPriceTl = roundPrice(product.priceUsd * rates.usd);
+      setCart((prev) => [
+        ...prev,
+        {
+          rowId: `manual-${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          productId: product.id,
+          productName: product.name,
+          productSku: product.sku,
+          sourceInvoiceItemId: 0,
+          invoiceId: 0,
+          invoiceNo: 'İnsiyatif',
+          unitPriceTl: unitPriceTl > 0 ? unitPriceTl : 0,
+          exchangeRate: rates.usd,
+          returnQty: 1,
+          poolReturnable: 99999,
+          isChinaReturn: false,
+          manualOverride: true,
+        },
+      ]);
+      notify(
+        'success',
+        `${product.name} insiyatif olarak sepete eklendi — fiyatı satırda düzenleyebilirsiniz.`
+      );
+      setWarning(null);
+    },
+    [notify, rates.usd]
+  );
 
   const pickProductForReturn = useCallback(
     async (product: F2Product) => {
@@ -271,7 +314,7 @@ export default function SalesReturn({
         closeSearchModal();
 
         if (data.status !== 'ok') {
-          showLookupWarning(data);
+          showLookupWarning(data, product);
           return;
         }
 
@@ -347,6 +390,7 @@ export default function SalesReturn({
 
     const totalsBySource = new Map<number, { total: number; pool: number; name: string }>();
     for (const line of activeLines) {
+      if (line.manualOverride) continue;
       const entry = totalsBySource.get(line.sourceInvoiceItemId);
       if (entry) {
         entry.total += line.returnQty;
@@ -368,8 +412,11 @@ export default function SalesReturn({
       }
     }
 
+    const manualLines = activeLines.filter((line) => line.manualOverride);
+    const standardLines = activeLines.filter((line) => !line.manualOverride);
+
     const byInvoice = new Map<number, ReturnCartLine[]>();
-    for (const line of activeLines) {
+    for (const line of standardLines) {
       const group = byInvoice.get(line.invoiceId) ?? [];
       group.push(line);
       byInvoice.set(line.invoiceId, group);
@@ -396,6 +443,26 @@ export default function SalesReturn({
           })),
         });
 
+        if (response.data.success) {
+          const no = response.data.data?.invoiceNo;
+          if (no) createdNos.push(no);
+        }
+      }
+
+      if (manualLines.length > 0) {
+        const response = await axios.post(`${API_BASE}/api/sales/return-discretionary`, {
+          customerId: Number(selectedCustomer),
+          branchId: Number(selectedBranch),
+          safeId: Number(selectedSafe),
+          exchangeRate: rates.usd,
+          note: 'İnsiyatif iade — kayıt/süre kontrolü atlandı',
+          items: manualLines.map((row) => ({
+            productId: row.productId,
+            quantity: row.returnQty,
+            unitPrice: row.unitPriceTl,
+            isChinaReturn: row.isChinaReturn,
+          })),
+        });
         if (response.data.success) {
           const no = response.data.data?.invoiceNo;
           if (no) createdNos.push(no);
@@ -577,26 +644,45 @@ export default function SalesReturn({
                       return (
                         <tr
                           key={line.rowId}
-                          className={line.isChinaReturn ? 'bg-orange-50/50' : undefined}
+                          className={
+                            line.isChinaReturn
+                              ? 'bg-orange-50/50'
+                              : line.manualOverride
+                                ? 'bg-violet-50/40'
+                                : undefined
+                          }
                         >
                           <td className="px-4 py-3">
                             <p className="text-sm font-medium text-slate-900">
                               {line.productName}
+                              {line.manualOverride && (
+                                <span className="ml-2 rounded bg-violet-100 px-1.5 py-0.5 text-caption font-semibold text-violet-700">
+                                  İnsiyatif
+                                </span>
+                              )}
                             </p>
                             <p className="text-xs text-slate-500">{line.productSku}</p>
                             <p className="text-caption text-slate-400">
-                              Bu satır max {rowMax} · toplam limit {line.poolReturnable} adet
+                              {line.manualOverride
+                                ? 'Manuel iade — fiyat düzenlenebilir'
+                                : `Bu satır max ${rowMax} · toplam limit ${line.poolReturnable} adet`}
                             </p>
                           </td>
                           <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() => setViewingInvoiceId(line.invoiceId)}
-                              className="text-sm font-semibold text-violet-700 hover:text-violet-900 hover:underline"
-                              title="Faturayı görüntüle"
-                            >
-                              {line.invoiceNo}
-                            </button>
+                            {line.manualOverride ? (
+                              <span className="text-sm font-semibold text-violet-700">
+                                {line.invoiceNo}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setViewingInvoiceId(line.invoiceId)}
+                                className="text-sm font-semibold text-violet-700 hover:text-violet-900 hover:underline"
+                                title="Faturayı görüntüle"
+                              >
+                                {line.invoiceNo}
+                              </button>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right">
                             <input
@@ -647,7 +733,33 @@ export default function SalesReturn({
                             />
                           </td>
                           <td className="px-4 py-3 text-right text-sm">
-                            {formatUsd(unitUsd)}
+                            {line.manualOverride ? (
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={roundPrice(line.unitPriceTl / line.exchangeRate) || ''}
+                                onChange={(e) => {
+                                  const usd = Number(e.target.value);
+                                  setCart((prev) =>
+                                    prev.map((row) =>
+                                      row.rowId === line.rowId
+                                        ? {
+                                            ...row,
+                                            unitPriceTl: roundPrice(
+                                              usd * row.exchangeRate
+                                            ),
+                                          }
+                                        : row
+                                    )
+                                  );
+                                }}
+                                className="w-20 rounded-md border border-violet-200 px-2 py-1 text-right text-sm"
+                                title="Birim fiyat USD"
+                              />
+                            ) : (
+                              formatUsd(unitUsd)
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right text-sm font-semibold">
                             {formatUsd(lineTotalUsd)}
@@ -719,13 +831,26 @@ export default function SalesReturn({
                 <p className="mt-2 text-sm text-slate-600">{warning.message}</p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setWarning(null)}
-              className="w-full rounded-xl bg-slate-800 py-3 text-sm font-semibold text-white hover:bg-slate-700"
-            >
-              Tamam
-            </button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {warning.allowForce && warning.product && (
+                <button
+                  type="button"
+                  onClick={() => addManualReturnLine(warning.product!)}
+                  className="flex-1 rounded-xl bg-amber-600 py-3 text-sm font-semibold text-white hover:bg-amber-500"
+                >
+                  Yine de Sepete Ekle
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setWarning(null)}
+                className={`rounded-xl border border-slate-200 bg-white py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 ${
+                  warning.allowForce ? 'flex-1' : 'w-full'
+                }`}
+              >
+                {warning.allowForce ? 'Vazgeç' : 'Tamam'}
+              </button>
+            </div>
           </div>
         </div>
       )}

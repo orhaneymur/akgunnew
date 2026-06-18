@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { ArrowDownLeft, ArrowUpRight, Search, Wallet } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Pencil, Search, Wallet, X } from 'lucide-react';
 import F2CustomerList from '../components/F2CustomerList';
 import ProductSearchPopover from '../components/ProductSearchPopover';
 import { useF2CustomerSearch } from '../hooks/useF2CustomerSearch';
@@ -10,6 +10,7 @@ import {
   balanceStyles,
   ensureArray,
   formatMoney,
+  formatDate,
   type Customer,
   type PaginatedListResponse,
   type Safe,
@@ -19,6 +20,16 @@ type CustomerPaymentProps = {
   f2Trigger?: number;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
+};
+
+type PaymentRow = {
+  id: number;
+  type: 'GIRIS' | 'CIKIS';
+  amount: number;
+  description: string;
+  createdAt: string;
+  customer: { id: number; code: string; name: string; balance: number } | null;
+  safe: { id: number; name: string; currency: string; balance: number };
 };
 
 function pickCustomerFromSearch(query: string, results: Customer[]): Customer | null {
@@ -54,6 +65,14 @@ export default function CustomerPayment({
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [f2Modal, setF2Modal] = useState(false);
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<PaymentRow | null>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editType, setEditType] = useState<'GIRIS' | 'CIKIS'>('GIRIS');
+  const [editSafeId, setEditSafeId] = useState<number | ''>('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   const customerDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const customerSearchRef = useRef<HTMLInputElement>(null);
@@ -84,6 +103,29 @@ export default function CustomerPayment({
   useEffect(() => {
     loadSafes();
   }, [loadSafes]);
+
+  const loadPayments = useCallback(async () => {
+    setPaymentsLoading(true);
+    try {
+      const params: Record<string, string | number> = { limit: 30, page: 1 };
+      if (selectedCustomer) params.customerId = selectedCustomer.id;
+      const response = await axios.get<PaginatedListResponse<PaymentRow>>(
+        `${API_BASE}/api/customers/payments`,
+        { params }
+      );
+      if (response.data.success) {
+        setPayments(ensureArray(response.data.data));
+      }
+    } catch {
+      onNotify?.('error', 'Ödeme listesi yüklenemedi.');
+    } finally {
+      setPaymentsLoading(false);
+    }
+  }, [selectedCustomer, onNotify]);
+
+  useEffect(() => {
+    void loadPayments();
+  }, [loadPayments]);
 
   useEffect(() => {
     if (f2Trigger > 0) {
@@ -204,7 +246,7 @@ export default function CustomerPayment({
         onNotify?.('success', `${label} başarıyla kaydedildi.`);
         setAmount('');
         setDescription('');
-        await Promise.all([refreshSelectedCustomer(customer.id), loadSafes()]);
+        await Promise.all([refreshSelectedCustomer(customer.id), loadSafes(), loadPayments()]);
         onDataChange?.();
       }
     } catch (error) {
@@ -215,6 +257,60 @@ export default function CustomerPayment({
       onNotify?.('error', message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openEditPayment = (payment: PaymentRow) => {
+    setEditingPayment(payment);
+    setEditAmount(String(payment.amount));
+    setEditDescription(payment.description);
+    setEditType(payment.type);
+    setEditSafeId(payment.safe.id);
+  };
+
+  const closeEditPayment = () => {
+    setEditingPayment(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingPayment) return;
+    const parsedAmount = Number(editAmount);
+    if (!parsedAmount || parsedAmount <= 0) {
+      onNotify?.('error', 'Geçerli bir tutar girin.');
+      return;
+    }
+    if (editSafeId === '') {
+      onNotify?.('error', 'Kasa seçin.');
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      const response = await axios.put(
+        `${API_BASE}/api/customers/payment/${editingPayment.id}`,
+        {
+          amount: parsedAmount,
+          type: editType,
+          description: editDescription.trim() || undefined,
+          safeId: Number(editSafeId),
+          customerId: editingPayment.customer?.id,
+        }
+      );
+      if (response.data.success) {
+        onNotify?.('success', 'Ödeme kaydı güncellendi.');
+        closeEditPayment();
+        if (selectedCustomer) await refreshSelectedCustomer(selectedCustomer.id);
+        await Promise.all([loadSafes(), loadPayments()]);
+        onDataChange?.();
+      }
+    } catch (error) {
+      const message =
+        axios.isAxiosError(error) && error.response?.data?.message
+          ? String(error.response.data.message)
+          : 'Güncelleme başarısız.';
+      onNotify?.('error', message);
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -418,6 +514,181 @@ export default function CustomerPayment({
           )}
         </aside>
       </div>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <h2 className="font-semibold text-slate-800">
+            {selectedCustomer ? `${selectedCustomer.code} — Son Ödemeler` : 'Son Cari Ödemeler'}
+          </h2>
+          <button
+            type="button"
+            onClick={() => void loadPayments()}
+            className="text-xs font-semibold text-emerald-700 hover:text-emerald-800"
+          >
+            Yenile
+          </button>
+        </div>
+        {paymentsLoading ? (
+          <p className="px-5 py-8 text-center text-sm text-slate-400">Yükleniyor...</p>
+        ) : payments.length === 0 ? (
+          <p className="px-5 py-8 text-center text-sm text-slate-400">Kayıt yok</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-100">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                    Tarih
+                  </th>
+                  {!selectedCustomer && (
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                      Müşteri
+                    </th>
+                  )}
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                    Tip
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                    Kasa
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                    Tutar
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                    Açıklama
+                  </th>
+                  <th className="w-12 px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {payments.map((payment) => (
+                  <tr key={payment.id} className="hover:bg-slate-50/60">
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      {formatDate(payment.createdAt)}
+                    </td>
+                    {!selectedCustomer && (
+                      <td className="px-4 py-3 text-sm text-slate-800">
+                        {payment.customer?.name ?? '—'}
+                      </td>
+                    )}
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded px-2 py-0.5 text-xs font-semibold ${
+                          payment.type === 'GIRIS'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {payment.type === 'GIRIS' ? 'Tahsilat' : 'Ödeme'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">{payment.safe.name}</td>
+                    <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900">
+                      {formatMoney(payment.amount)}
+                    </td>
+                    <td className="max-w-[200px] truncate px-4 py-3 text-sm text-slate-500">
+                      {payment.description}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => openEditPayment(payment)}
+                        className="rounded p-1.5 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
+                        title="Düzenle"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {editingPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">Ödeme Düzenle</h3>
+              <button
+                type="button"
+                onClick={closeEditPayment}
+                className="rounded p-1 text-slate-400 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="field-label">İşlem Tipi</label>
+                <select
+                  value={editType}
+                  onChange={(e) => setEditType(e.target.value as 'GIRIS' | 'CIKIS')}
+                  className="field-input"
+                >
+                  <option value="GIRIS">Tahsilat (Giriş)</option>
+                  <option value="CIKIS">Ödeme (Çıkış)</option>
+                </select>
+              </div>
+              <div>
+                <label className="field-label">Kasa</label>
+                <select
+                  value={editSafeId}
+                  onChange={(e) =>
+                    setEditSafeId(e.target.value ? Number(e.target.value) : '')
+                  }
+                  className="field-input"
+                >
+                  {safes.map((safe) => (
+                    <option key={safe.id} value={safe.id}>
+                      {safe.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="field-label">Tutar (TL)</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(e.target.value)}
+                  className="field-input"
+                />
+              </div>
+              <div>
+                <label className="field-label">Açıklama</label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={3}
+                  className="field-input resize-none"
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={editSubmitting}
+                  className="btn btn-secondary flex-1"
+                >
+                  {editSubmitting ? 'Kaydediliyor...' : 'Kaydet'}
+                </button>
+                <button
+                  type="button"
+                  onClick={closeEditPayment}
+                  className="btn btn-outline flex-1"
+                >
+                  İptal
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ProductSearchPopover
         open={f2Modal}

@@ -59,6 +59,12 @@ model Product {
   sku          String         @unique
   barcode      String?        @unique
   name         String
+  brand        String?
+  model        String?
+  appearance   String?
+  quality      String?
+  rbmPrice     Float          @default(0.0)
+  description  String?        @db.Text
   costPrice    Float          @default(0.0)
   priceTl      Float          @default(0.0)
   priceUsd     Float          @default(0.0)
