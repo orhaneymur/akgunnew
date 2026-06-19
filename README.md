@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.6` · `since1907/akgun-frontend:v1.8.21`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.8` · `since1907/akgun-frontend:v1.8.27`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -132,6 +132,40 @@ Satış İade ekranında artık **fatura seçimi yok**. Akış:
 - Excel / canlı yedekten aktarılmış **181 müşteri** ve **16.737 ürün**
 - Anlık **borç / alacak** takibi, tahsilat / ödeme kayıtları
 - Müşteri bakiye raporu ve **costPrice** bazlı **kâr-zarar analizi**
+- **Borçlu** ve **alacaklı** müşteriler ayrı tablolarda listelenir (v1.8.22); negatif bakiye = müşteride bizde tutulan alacak
+
+### Fiş Tekrar Yazdırma ve Cari Ayrımı (v1.8.22)
+
+- **Satış faturası düzenleme** ekranında **Fiş Yazdır** butonu — kaydetmeden istediğiniz kadar yazdırabilirsiniz
+- Yazdırma çıktısında fatura no, müşteri, tarih ve ödeme bilgisi üst bilgi olarak yer alır
+- **Müşteri Borç / Alacak** sayfasında üç özet kart: toplam alacağımız, toplam borcumuz (müşteriye alacaklı), riskli bakiye
+- **Borçlu Müşteriler** ve **Alacaklı Müşteriler** ayrı listeler; alacaklılar en yüksek alacaktan sıralı
+
+### Menü ve Müşteri Kartı (v1.8.24)
+
+- **Müşteri Borç / Alacak** raporu **Raporlar** menüsüne taşındı (Müşteri Ekstre altında)
+- **Müşteri İşlemleri** altına **Yeni Müşteri Kartı** ekranı eklendi — tam sayfa cari kartı oluşturma formu
+
+### Fatura Düzenleme ve Logo (v1.8.27)
+
+- **Fatura Listesi** ve Ana Sayfa: satış, alış ve iade faturaları düzenlenebilir
+- Alış faturaları **Alış Faturası Düzenle** ekranında · iade faturaları **İade Faturası Düzenle** ekranında açılır
+- Sol menü logo alanında görünen firma adı: **AKG**
+
+### Müşteri Kartı ve Tıklanabilir İsimler (v1.8.25)
+
+- Her müşteri için **Müşteri Kartı** sayfası (`?page=customer-detail&customerId=…`)
+- Kartta: iletişim bilgileri, bakiye, kredi limiti, faturalar, tahsilat/ödemeler, son cari hareketler
+- Kısayollar: **Tahsilat/Ödeme**, **Tam Ekstre**, **Düzenle**, satış faturası açma
+- Müşteri adı/kodu tıklanabilir: müşteri listesi, borç/alacak, fatura listesi, ana sayfa, stok hareketleri, tahsilat listesi
+- **Müşteri Ekstre** ekranında klavye ile arama (↑↓ Enter, liste kaydırmadan müşteri seçimi)
+
+### Cari Bakiye ve Fiş Özeti (v1.8.23)
+
+- **Cari (veresiye)** satışlarda müşteri bakiyesi kayıt sonrası güncellenir; ekrandaki bakiye alanı yenilenir
+- Cari seçiliyken sepet doluyken **satış sonrası tahmini bakiye** önizlemesi gösterilir
+- Yazdırılan fişin altında **Önceki Bakiye** ve **Satış Sonrası Bakiye** (cari satış veya mevcut bakiyesi olan müşterilerde)
+- Düzenleme ekranında **Fiş Yazdır** ile cari faturalarda bakiye özeti de çıkar
 
 ### Fatura Listesi ve Ön Sipariş Düzenleme (v1.8.7)
 

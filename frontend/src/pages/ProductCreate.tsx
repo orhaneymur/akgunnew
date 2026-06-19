@@ -3,37 +3,38 @@ import axios from 'axios';
 import { Package, PlusCircle, Save } from 'lucide-react';
 import { API_BASE, ensureArray, formatUsd, roundPrice } from '../lib/api';
 import { useExchangeRates } from '../hooks/useExchangeRates';
+import { APPEARANCE_OPTIONS, QUALITY_OPTIONS } from '../lib/productOptions';
 
 type Category = {
   id: number;
   name: string;
 };
 
-const APPEARANCE_OPTIONS = [
-  { value: 'CITALI', label: 'Çıtalı' },
-  { value: 'CITASIZ', label: 'Çıtasız' },
-] as const;
-
-const QUALITY_OPTIONS = [
-  { value: 'A_KALITE', label: 'A Kalite' },
-  { value: 'A_PLUS', label: 'A Plus' },
-  { value: 'ORJINAL', label: 'Orjinal' },
-  { value: 'REVIZYON_ORJINAL', label: 'Revizyon Orjinal' },
-  { value: 'SERVIS_ORJINAL', label: 'Servis Orjinal' },
-  { value: 'OLED', label: 'OLED' },
-] as const;
+type BrandModelOption = {
+  id: number;
+  name: string;
+  kind: 'MARKA' | 'MODEL';
+  categoryId: number | null;
+  category: { id: number; name: string } | null;
+};
 
 type ProductCreateProps = {
   onNotify?: (type: 'success' | 'error', message: string) => void;
 };
 
+function matchesCategory(item: BrandModelOption, categoryId: number | ''): boolean {
+  if (categoryId === '') return false;
+  return item.categoryId === categoryId;
+}
+
 export default function ProductCreate({ onNotify }: ProductCreateProps) {
   const { rates } = useExchangeRates();
   const [categories, setCategories] = useState<Category[]>([]);
+  const [brandModels, setBrandModels] = useState<BrandModelOption[]>([]);
   const [name, setName] = useState('');
   const [categoryId, setCategoryId] = useState<number | ''>('');
-  const [brand, setBrand] = useState('');
-  const [model, setModel] = useState('');
+  const [brandId, setBrandId] = useState<number | ''>('');
+  const [modelId, setModelId] = useState<number | ''>('');
   const [appearance, setAppearance] = useState('');
   const [quality, setQuality] = useState('');
   const [rbmPrice, setRbmPrice] = useState('');
@@ -49,15 +50,41 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
   };
 
   useEffect(() => {
-    void axios
-      .get<{ success: boolean; data: Category[] }>(`${API_BASE}/api/settings/categories`)
-      .then((res) => {
-        if (res.data.success) setCategories(ensureArray(res.data.data));
+    void Promise.all([
+      axios.get<{ success: boolean; data: Category[] }>(`${API_BASE}/api/settings/categories`),
+      axios.get<{ success: boolean; data: BrandModelOption[] }>(
+        `${API_BASE}/api/settings/brand-models`
+      ),
+    ])
+      .then(([catRes, brandRes]) => {
+        if (catRes.data.success) setCategories(ensureArray(catRes.data.data));
+        if (brandRes.data.success) setBrandModels(ensureArray(brandRes.data.data));
       })
       .catch(() => {
-        /* kategoriler opsiyonel */
+        /* tanımlar opsiyonel */
       });
   }, []);
+
+  const brandOptions = useMemo(
+    () =>
+      brandModels.filter(
+        (item) => item.kind === 'MARKA' && matchesCategory(item, categoryId)
+      ),
+    [brandModels, categoryId]
+  );
+
+  const modelOptions = useMemo(
+    () =>
+      brandModels.filter(
+        (item) => item.kind === 'MODEL' && matchesCategory(item, categoryId)
+      ),
+    [brandModels, categoryId]
+  );
+
+  const selectedBrandName =
+    brandId !== '' ? brandOptions.find((b) => b.id === brandId)?.name ?? '' : '';
+  const selectedModelName =
+    modelId !== '' ? modelOptions.find((m) => m.id === modelId)?.name ?? '' : '';
 
   const parsedCost = Number(costPriceUsd) || 0;
   const parsedSale = Number(priceUsd) || 0;
@@ -66,15 +93,15 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
     parsedSale > 0 ? ((parsedSale - parsedCost) / parsedSale) * 100 : 0;
 
   const generatedPreview = useMemo(() => {
-    const parts = [brand.trim(), model.trim(), name.trim()].filter(Boolean);
+    const parts = [selectedBrandName, selectedModelName, name.trim()].filter(Boolean);
     return parts.join(' ') || name.trim();
-  }, [brand, model, name]);
+  }, [selectedBrandName, selectedModelName, name]);
 
   const resetForm = () => {
     setName('');
     setCategoryId('');
-    setBrand('');
-    setModel('');
+    setBrandId('');
+    setModelId('');
     setAppearance('');
     setQuality('');
     setRbmPrice('');
@@ -83,6 +110,12 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
     setDescription('');
     setBarcode('');
     setInitialQuantity('0');
+  };
+
+  const handleCategoryChange = (value: number | '') => {
+    setCategoryId(value);
+    setBrandId('');
+    setModelId('');
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -113,8 +146,9 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
         barcode: barcode.trim() || undefined,
         initialQuantity: Number(initialQuantity) || 0,
         categoryId: categoryId !== '' ? Number(categoryId) : undefined,
-        brand: brand.trim() || undefined,
-        model: model.trim() || undefined,
+        brand: selectedBrandName || undefined,
+        model: selectedModelName || undefined,
+        brandModelId: modelId !== '' ? Number(modelId) : undefined,
         appearance: appearance || undefined,
         quality: quality || undefined,
         rbmPrice: parsedRbm,
@@ -151,15 +185,12 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
         <div>
           <h1 className="page-title">Stok Kartı Oluştur</h1>
           <p className="page-subtitle">
-            Ürün tanımı — MERKEZ_DEPO stok kaydı otomatik açılır · SKU otomatik üretilir
+            Kategori, marka ve model tanımlardan seçilir · SKU otomatik üretilir
           </p>
         </div>
       </div>
 
-      <form
-        onSubmit={handleSubmit}
-        className="card-section overflow-hidden"
-      >
+      <form onSubmit={handleSubmit} className="card-section overflow-hidden">
         <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
           <div className="space-y-4 border-b border-slate-100 p-5 lg:border-b-0 lg:border-r">
             <h2 className="text-sm font-bold uppercase tracking-wide text-indigo-700">
@@ -167,23 +198,11 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
             </h2>
 
             <div>
-              <label className={labelClass}>Stok Adı *</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                className={fieldClass}
-                placeholder="iPhone 12 Ekran"
-              />
-            </div>
-
-            <div>
               <label className={labelClass}>Kategori</label>
               <select
                 value={categoryId}
                 onChange={(e) =>
-                  setCategoryId(e.target.value ? Number(e.target.value) : '')
+                  handleCategoryChange(e.target.value ? Number(e.target.value) : '')
                 }
                 className={fieldClass}
               >
@@ -194,34 +213,82 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-caption text-slate-400">
+                Tanımlar → Kategori & Marka/Model
+              </p>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>Marka</label>
-                <input
-                  type="text"
-                  value={brand}
-                  onChange={(e) => setBrand(e.target.value)}
+                <select
+                  value={brandId}
+                  onChange={(e) =>
+                    setBrandId(e.target.value ? Number(e.target.value) : '')
+                  }
                   className={fieldClass}
-                  placeholder="Apple"
-                />
+                  disabled={categoryId === ''}
+                >
+                  <option value="">
+                    {categoryId === '' ? 'Önce kategori seçin' : 'Seçin...'}
+                  </option>
+                  {brandOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+                {categoryId !== '' && brandOptions.length === 0 && (
+                  <p className="mt-1 text-caption text-amber-700">
+                    Bu kategori için marka tanımı yok.
+                  </p>
+                )}
               </div>
               <div>
                 <label className={labelClass}>Model</label>
-                <input
-                  type="text"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
+                <select
+                  value={modelId}
+                  onChange={(e) =>
+                    setModelId(e.target.value ? Number(e.target.value) : '')
+                  }
                   className={fieldClass}
-                  placeholder="iPhone 12"
-                />
+                  disabled={categoryId === ''}
+                >
+                  <option value="">
+                    {categoryId === '' ? 'Önce kategori seçin' : 'Seçin...'}
+                  </option>
+                  {modelOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+                {categoryId !== '' && modelOptions.length === 0 && (
+                  <p className="mt-1 text-caption text-amber-700">
+                    Bu kategori için model tanımı yok.
+                  </p>
+                )}
               </div>
+            </div>
+
+            <div>
+              <label className={labelClass}>Stok Adı *</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className={fieldClass}
+                placeholder="Ekran, batarya, cam..."
+              />
+              <p className="mt-1 text-caption text-slate-400">
+                Marka + model + bu alan birleşerek kayıt adı oluşur
+              </p>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <label className={labelClass}>Görünüm</label>
+                <label className={labelClass}>Renk / Görünüm</label>
                 <select
                   value={appearance}
                   onChange={(e) => setAppearance(e.target.value)}
@@ -351,11 +418,7 @@ export default function ProductCreate({ onNotify }: ProductCreateProps) {
         </div>
 
         <div className="border-t border-slate-100 bg-white px-5 py-4">
-          <button
-            type="submit"
-            disabled={submitting}
-            className="btn btn-secondary"
-          >
+          <button type="submit" disabled={submitting} className="btn btn-secondary">
             <Save className="h-5 w-5" />
             {submitting ? 'Kaydediliyor...' : 'Stok Kartını Kaydet'}
           </button>

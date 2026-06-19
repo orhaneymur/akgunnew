@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Pencil, Plus, Search, Users, X } from 'lucide-react';
+import CustomerNameLink from '../components/CustomerNameLink';
 import PaginationBar from '../components/PaginationBar';
 import ExcelActions from '../components/ExcelActions';
 import {
@@ -270,9 +271,15 @@ export default function CustomerList({ onNotify }: CustomerListProps = {}) {
                   return (
                     <tr key={customer.id} className="hover:bg-slate-50/60">
                       <td className="px-4 py-3 text-sm font-semibold text-slate-900">
-                        {customer.code}
+                        <CustomerNameLink customerId={customer.id}>
+                          {customer.code}
+                        </CustomerNameLink>
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-800">{customer.name}</td>
+                      <td className="px-4 py-3 text-sm text-slate-800">
+                        <CustomerNameLink customerId={customer.id}>
+                          {customer.name}
+                        </CustomerNameLink>
+                      </td>
                       <td className="px-4 py-3 text-sm text-right text-slate-600">
                         {formatMoney(customer.creditLimit)}
                       </td>

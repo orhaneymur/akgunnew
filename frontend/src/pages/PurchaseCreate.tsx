@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { FileInput, Save, Search, ShoppingCart, X } from 'lucide-react';
+import { FileInput, Save, Search, ShoppingCart, X, ArrowLeft } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
 import F2ProductList, {
   resolvePurchaseUnitPriceUsd,
@@ -17,6 +17,7 @@ import {
   type Customer,
   type PaginatedListResponse,
 } from '../lib/api';
+import { recordF2ProductSelection } from '../lib/f2LastProduct';
 
 type Branch = { id: number; name: string; type: string };
 type Safe = {
@@ -39,6 +40,7 @@ type Product = {
 };
 type CartItem = {
   rowId: string;
+  sourceInvoiceItemId?: number;
   product: Product;
   quantity: number;
   unitPriceUsd: number;
@@ -55,15 +57,22 @@ type PaymentType = 'Peşin' | 'Vadeli';
 
 type PurchaseCreateProps = {
   f2Trigger?: number;
+  editInvoiceId?: number | null;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
+  onCancelEdit?: () => void;
+  onSaved?: () => void;
 };
 
 export default function PurchaseCreate({
   f2Trigger = 0,
+  editInvoiceId = null,
   onNotify,
   onDataChange,
+  onCancelEdit,
+  onSaved,
 }: PurchaseCreateProps) {
+  const isEditMode = editInvoiceId != null && editInvoiceId > 0;
   const { rates } = useExchangeRates();
   const [initData, setInitData] = useState<InitData>({
     branches: [],
@@ -89,6 +98,9 @@ export default function PurchaseCreate({
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchModal, setSearchModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [displayInvoiceNo, setDisplayInvoiceNo] = useState('');
+  const [removedItemIds, setRemovedItemIds] = useState<number[]>([]);
 
   const supplierSearchRef = useRef<HTMLInputElement>(null);
   const supplierDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -159,19 +171,106 @@ export default function PurchaseCreate({
           branches[0];
 
         if (branch) {
-          setSelectedBranch(branch.id);
-          const branchSafe = safes.find((s) => s.branchId === branch.id);
-          if (branchSafe) setSelectedSafe(branchSafe.id);
+          if (!isEditMode) {
+            setSelectedBranch(branch.id);
+            const branchSafe = safes.find((s) => s.branchId === branch.id);
+            if (branchSafe) setSelectedSafe(branchSafe.id);
+          }
         }
 
-        if (personnels.length > 0 && !processedBy) {
+        if (personnels.length > 0 && !processedBy && !isEditMode) {
           setProcessedBy(personnels[0].name);
         }
       }
     } catch {
       notify('error', 'Başlangıç verileri yüklenemedi.');
     }
-  }, [notify, processedBy]);
+  }, [notify, processedBy, isEditMode]);
+
+  useEffect(() => {
+    if (!isEditMode || !editInvoiceId) return;
+
+    let cancelled = false;
+    const loadInvoice = async () => {
+      setEditLoading(true);
+      try {
+        const invRes = await axios.get<{
+          success: boolean;
+          data: {
+            id: number;
+            invoiceNo: string;
+            type: string;
+            paymentMethod: string;
+            paymentType: string | null;
+            processedBy: string | null;
+            orderNotes: string | null;
+            dueDate: string | null;
+            exchangeRate: number;
+            createdAt: string;
+            customer: Customer;
+            branch: { id: number };
+            safe?: { id: number } | null;
+            items: Array<{
+              id: number;
+              quantity: number;
+              unitPrice: number;
+              product: Product;
+            }>;
+          };
+        }>(`${API_BASE}/api/sales/invoices/${editInvoiceId}`);
+
+        if (!invRes.data.success || cancelled) return;
+        const data = invRes.data.data;
+
+        if (data.type !== 'ALIS') {
+          notify('error', 'Yalnızca alış faturaları düzenlenebilir.');
+          onCancelEdit?.();
+          return;
+        }
+
+        const rate = data.exchangeRate > 0 ? data.exchangeRate : rates.usd;
+        setDisplayInvoiceNo(data.invoiceNo);
+        setSelectedSupplier(data.customer);
+        setSupplierSearch(`${data.customer.code} — ${data.customer.name}`);
+        setSelectedBranch(data.branch.id);
+        if (data.safe?.id) setSelectedSafe(data.safe.id);
+
+        const pm = data.paymentMethod as PaymentMethod;
+        if (['Nakit', 'EFT/Havale', 'Kart', 'Cari'].includes(pm)) {
+          setPaymentMethod(pm);
+        }
+        if (data.paymentType === 'Peşin' || data.paymentType === 'Vadeli') {
+          setPaymentType(data.paymentType);
+        }
+        setProcessedBy(data.processedBy ?? '');
+        setOrderNotes(data.orderNotes ?? '');
+        setDueDate(data.dueDate ? data.dueDate.slice(0, 10) : '');
+        setInvoiceDate(data.createdAt.slice(0, 10));
+        setRemovedItemIds([]);
+        setCart(
+          data.items.map((line) => ({
+            rowId: `inv-${line.id}`,
+            sourceInvoiceItemId: line.id,
+            product: line.product,
+            quantity: line.quantity,
+            unitPriceUsd: roundPrice(line.unitPrice / rate),
+          }))
+        );
+      } catch {
+        if (!cancelled) {
+          notify('error', 'Fatura yüklenemedi.');
+          onCancelEdit?.();
+        }
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    };
+
+    void loadInvoice();
+    return () => {
+      cancelled = true;
+    };
+  }, [editInvoiceId, isEditMode, notify, onCancelEdit, rates.usd]);
 
   useEffect(() => {
     loadInitData();
@@ -238,6 +337,11 @@ export default function PurchaseCreate({
   };
 
   const addProductToCart = (product: F2Product | Product) => {
+    recordF2ProductSelection(
+      'purchase',
+      product.id,
+      selectedSupplier ? selectedSupplier.id : null
+    );
     const unitPriceUsd = resolvePurchaseUnitPriceUsd(
       product as F2Product,
       Boolean(selectedSupplier),
@@ -273,6 +377,16 @@ export default function PurchaseCreate({
     onSelect: addProductToCart,
     onClose: closeSearchModal,
   });
+
+  const removeCartItem = (rowId: string) => {
+    const row = cart.find((item) => item.rowId === rowId);
+    if (row?.sourceInvoiceItemId) {
+      setRemovedItemIds((prev) =>
+        prev.includes(row.sourceInvoiceItemId!) ? prev : [...prev, row.sourceInvoiceItemId!]
+      );
+    }
+    setCart((prev) => prev.filter((item) => item.rowId !== rowId));
+  };
 
   const handleSubmit = async () => {
     if (!selectedSupplier) {
@@ -310,6 +424,38 @@ export default function PurchaseCreate({
 
     setSubmitting(true);
     try {
+      if (isEditMode && editInvoiceId) {
+        const rate = rates.usd > 0 ? rates.usd : 1;
+        await axios.put(`${API_BASE}/api/sales/invoices/${editInvoiceId}`, {
+          customerId: selectedSupplier.id,
+          paymentMethod,
+          paymentType,
+          processedBy: processedBy || null,
+          orderNotes: orderNotes || undefined,
+          dueDate: dueDate || null,
+          invoiceDate,
+          exchangeRate: rate,
+          ...(removedItemIds.length > 0 ? { removeItemIds: removedItemIds } : {}),
+          items: cart.map((item) => {
+            const unitPriceTl = roundPrice(item.unitPriceUsd * rate);
+            const payload = {
+              quantity: item.quantity,
+              unitPrice: unitPriceTl,
+              discountPercent: 0,
+            };
+            if (item.sourceInvoiceItemId) {
+              return { id: item.sourceInvoiceItemId, ...payload };
+            }
+            return { productId: item.product.id, ...payload };
+          }),
+        });
+
+        notify('success', `Alış faturası güncellendi: ${displayInvoiceNo}`);
+        onDataChange?.();
+        onSaved?.();
+        return;
+      }
+
       const response = await axios.post(`${API_BASE}/api/purchases/store`, {
         customerId: selectedSupplier.id,
         branchId,
@@ -356,16 +502,38 @@ export default function PurchaseCreate({
   const labelClass =
     'block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1';
 
+  if (editLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-slate-500">
+        Fatura yükleniyor...
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
+        {isEditMode && onCancelEdit && (
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50"
+            title="Listeye dön"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+        )}
         <div className="p-2.5 rounded-xl bg-rose-600 text-white">
           <FileInput className="w-5 h-5" />
         </div>
         <div>
-          <h1 className="page-title">Alış Faturası</h1>
+          <h1 className="page-title">
+            {isEditMode ? 'Alış Faturası Düzenle' : 'Alış Faturası'}
+          </h1>
           <p className="text-sm text-slate-500">
-            Tedarikçiden mal kabul · Fiyatlar $ (USD) · MERKEZ_DEPO stok artışı
+            {isEditMode
+              ? `${displayInvoiceNo} · kalemler ve üst bilgi güncellenir`
+              : 'Tedarikçiden mal kabul · Fiyatlar $ (USD) · MERKEZ_DEPO stok artışı'}
           </p>
         </div>
       </div>
@@ -380,7 +548,7 @@ export default function PurchaseCreate({
             <input
               type="text"
               readOnly
-              value={initData.nextInvoiceNo || 'AF...'}
+              value={isEditMode ? displayInvoiceNo : initData.nextInvoiceNo || 'AF...'}
               className={`${inputClass} bg-slate-50 font-mono font-bold text-rose-700`}
             />
           </div>
@@ -658,9 +826,7 @@ export default function PurchaseCreate({
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"
-                      onClick={() =>
-                        setCart((prev) => prev.filter((row) => row.rowId !== item.rowId))
-                      }
+                      onClick={() => removeCartItem(item.rowId)}
                       className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50"
                     >
                       <X className="w-4 h-4" />

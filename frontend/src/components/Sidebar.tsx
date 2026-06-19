@@ -1,5 +1,5 @@
 import { ChevronDown, Keyboard, LogOut, X, Zap } from 'lucide-react';
-import type { MenuCategoryId, NavigateFn, PageId } from '../lib/navigation';
+import type { MenuCategoryId, PageId } from '../lib/navigation';
 import { buildPageUrl, dashboardItem, menuCategories } from '../lib/navigation';
 
 type SidebarProps = {
@@ -7,7 +7,6 @@ type SidebarProps = {
   openMenus: Record<MenuCategoryId, boolean>;
   mobileOpen?: boolean;
   onToggleMenu: (id: MenuCategoryId) => void;
-  onNavigate: NavigateFn;
   onLogout: () => void;
   onMobileClose?: () => void;
 };
@@ -17,18 +16,23 @@ export default function Sidebar({
   openMenus,
   mobileOpen = false,
   onToggleMenu,
-  onNavigate,
   onLogout,
   onMobileClose,
 }: SidebarProps) {
   const DashboardIcon = dashboardItem.icon;
 
-  const isItemActive = (pageId: PageId) => activePage === pageId;
+  const isItemActive = (pageId: PageId) =>
+    activePage === pageId ||
+    (pageId === 'customer-list' && activePage === 'customer-detail');
 
-  const isCategoryActive = (categoryId: MenuCategoryId) =>
-    menuCategories
-      .find((c) => c.id === categoryId)
-      ?.items.some((item) => item.id === activePage) ?? false;
+  const isCategoryActive = (categoryId: MenuCategoryId) => {
+    if (categoryId === 'customer' && activePage === 'customer-detail') return true;
+    return (
+      menuCategories
+        .find((c) => c.id === categoryId)
+        ?.items.some((item) => item.id === activePage) ?? false
+    );
+  };
 
   const handleOpenInNewTab = (page: PageId) => {
     window.open(
@@ -54,9 +58,9 @@ export default function Sidebar({
             </div>
             <div className="min-w-0">
               <h1 className="truncate text-base font-bold tracking-wide text-white">
-                Akgün Teknik
+                AKG
               </h1>
-              <p className="text-caption text-slate-400">ERP Yönetim Paneli</p>
+              <p className="text-caption text-slate-400">Teknik ERP</p>
             </div>
           </div>
           {onMobileClose && (
@@ -73,13 +77,15 @@ export default function Sidebar({
       </div>
 
       <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-2 py-3">
-        <button
-          type="button"
-          onClick={() => {
-            onNavigate('dashboard');
-            onMobileClose?.();
+        <a
+          href={buildPageUrl('dashboard')}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => {
+            event.preventDefault();
+            handleOpenInNewTab('dashboard');
           }}
-          className={`mb-2 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
+          className={`mb-2 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all no-underline ${
             isItemActive('dashboard')
               ? 'bg-indigo-500/20 text-indigo-200 ring-1 ring-indigo-400/30'
               : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
@@ -87,7 +93,7 @@ export default function Sidebar({
         >
           <DashboardIcon className="h-4 w-4 shrink-0 text-indigo-300" />
           <span>{dashboardItem.label}</span>
-        </button>
+        </a>
 
         {menuCategories.map((category) => {
           const CategoryIcon = category.icon;

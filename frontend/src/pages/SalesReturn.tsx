@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, Copy, Package, RotateCcw, Save, Search, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Copy, Package, RotateCcw, Save, Search, X } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
 import F2ProductList from '../components/F2ProductList';
 import { useF2ProductSearch, type F2Product } from '../hooks/useF2ProductSearch';
 import { useF2KeyboardNav } from '../hooks/useF2KeyboardNav';
+import { useHoldKeyReveal } from '../hooks/useHoldKeyReveal';
 import { useExchangeRates } from '../hooks/useExchangeRates';
 import { depotLabel } from '../lib/depots';
 import {
@@ -16,6 +17,7 @@ import {
   roundPrice,
   type PaginatedListResponse,
 } from '../lib/api';
+import { recordF2ProductSelection } from '../lib/f2LastProduct';
 import SalesCreate from './SalesCreate';
 
 type Branch = { id: number; name: string; type: string };
@@ -61,9 +63,20 @@ type ReturnCartLine = {
   unitPriceTl: number;
   exchangeRate: number;
   returnQty: number;
+  costUsd: number;
   isChinaReturn: boolean;
   manualOverride?: boolean;
 };
+
+function productCostUsd(product: F2Product, exchangeRate: number): number {
+  if (product.costUsd != null && product.costUsd > 0) {
+    return roundPrice(product.costUsd);
+  }
+  if (product.costPrice > 0 && exchangeRate > 0) {
+    return roundPrice(product.costPrice / exchangeRate);
+  }
+  return roundPrice(product.priceUsd);
+}
 
 function newRowId(prefix: string, productId: number) {
   return `${prefix}-${productId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -78,15 +91,32 @@ type WarningState = {
 
 type SalesReturnProps = {
   f2Trigger?: number;
+  editInvoiceId?: number | null;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
+  onCancelEdit?: () => void;
+  onSaved?: () => void;
+};
+
+type EditReturnLine = {
+  rowId: string;
+  invoiceItemId: number;
+  productId: number;
+  productName: string;
+  productSku: string;
+  quantity: number;
+  unitPriceTl: number;
 };
 
 export default function SalesReturn({
   f2Trigger = 0,
+  editInvoiceId = null,
   onNotify,
   onDataChange,
+  onCancelEdit,
+  onSaved,
 }: SalesReturnProps) {
+  const isEditMode = editInvoiceId != null && editInvoiceId > 0;
   const [branches, setBranches] = useState<Branch[]>([]);
   const [safes, setSafes] = useState<Safe[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -101,8 +131,19 @@ export default function SalesReturn({
   const [warning, setWarning] = useState<WarningState | null>(null);
   const [viewingInvoiceId, setViewingInvoiceId] = useState<number | null>(null);
   const [pickingProduct, setPickingProduct] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [displayInvoiceNo, setDisplayInvoiceNo] = useState('');
+  const [editLines, setEditLines] = useState<EditReturnLine[]>([]);
+  const [removedItemIds, setRemovedItemIds] = useState<number[]>([]);
+  const [editNotes, setEditNotes] = useState('');
+  const [editProcessedBy, setEditProcessedBy] = useState('');
+  const [editInvoiceDate, setEditInvoiceDate] = useState('');
+  const [editCustomerLabel, setEditCustomerLabel] = useState('');
+  const [editCustomerId, setEditCustomerId] = useState<number | ''>('');
+  const [editExchangeRate, setEditExchangeRate] = useState(1);
 
   const { rates } = useExchangeRates();
+  const showCosts = useHoldKeyReveal('F8');
 
   const f2 = useF2ProductSearch({
     open: searchModal,
@@ -168,7 +209,7 @@ export default function SalesReturn({
         const safeList = ensureArray(initRes.data.data.safes);
         setBranches(branchList);
         setSafes(safeList);
-        if (branchList.length > 0) {
+        if (!isEditMode && branchList.length > 0) {
           setSelectedBranch(branchList[0].id);
           const safe = safeList.find((s) => s.branchId === branchList[0].id);
           if (safe) setSelectedSafe(safe.id);
@@ -181,7 +222,78 @@ export default function SalesReturn({
     } catch {
       notify('error', 'Başlangıç verileri yüklenemedi.');
     }
-  }, [notify]);
+  }, [notify, isEditMode]);
+
+  useEffect(() => {
+    if (!isEditMode || !editInvoiceId) return;
+
+    let cancelled = false;
+    const loadInvoice = async () => {
+      setEditLoading(true);
+      try {
+        const invRes = await axios.get<{
+          success: boolean;
+          data: {
+            id: number;
+            invoiceNo: string;
+            type: string;
+            processedBy: string | null;
+            orderNotes: string | null;
+            exchangeRate: number;
+            createdAt: string;
+            customer: { id: number; code: string; name: string };
+            items: Array<{
+              id: number;
+              quantity: number;
+              unitPrice: number;
+              product: { id: number; sku: string; name: string };
+            }>;
+          };
+        }>(`${API_BASE}/api/sales/invoices/${editInvoiceId}`);
+
+        if (!invRes.data.success || cancelled) return;
+        const data = invRes.data.data;
+
+        if (data.type !== 'IADE') {
+          notify('error', 'Yalnızca iade faturaları düzenlenebilir.');
+          onCancelEdit?.();
+          return;
+        }
+
+        setDisplayInvoiceNo(data.invoiceNo);
+        setEditCustomerId(data.customer.id);
+        setEditCustomerLabel(`${data.customer.code} — ${data.customer.name}`);
+        setEditProcessedBy(data.processedBy ?? '');
+        setEditNotes(data.orderNotes ?? '');
+        setEditInvoiceDate(data.createdAt.slice(0, 10));
+        setEditExchangeRate(data.exchangeRate > 0 ? data.exchangeRate : rates.usd);
+        setRemovedItemIds([]);
+        setEditLines(
+          data.items.map((line) => ({
+            rowId: `inv-${line.id}`,
+            invoiceItemId: line.id,
+            productId: line.product.id,
+            productName: line.product.name,
+            productSku: line.product.sku,
+            quantity: line.quantity,
+            unitPriceTl: roundPrice(line.unitPrice),
+          }))
+        );
+      } catch {
+        if (!cancelled) {
+          notify('error', 'İade faturası yüklenemedi.');
+          onCancelEdit?.();
+        }
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    };
+
+    void loadInvoice();
+    return () => {
+      cancelled = true;
+    };
+  }, [editInvoiceId, isEditMode, notify, onCancelEdit, rates.usd]);
 
   useEffect(() => {
     loadInit();
@@ -241,6 +353,9 @@ export default function SalesReturn({
 
   const addManualReturnLine = useCallback(
     (product: F2Product) => {
+      if (selectedCustomer !== '') {
+        recordF2ProductSelection('return', product.id, Number(selectedCustomer));
+      }
       const unitPriceTl = roundPrice(product.priceUsd * rates.usd);
       setCart((prev) => [
         ...prev,
@@ -255,6 +370,7 @@ export default function SalesReturn({
           unitPriceTl: unitPriceTl > 0 ? unitPriceTl : 0,
           exchangeRate: rates.usd,
           returnQty: 1,
+          costUsd: productCostUsd(product, rates.usd),
           isChinaReturn: false,
           manualOverride: true,
         },
@@ -262,7 +378,7 @@ export default function SalesReturn({
       notify('success', `${product.name} sepete eklendi — fiyatı satırda düzenleyebilirsiniz.`);
       setWarning(null);
     },
-    [notify, rates.usd]
+    [notify, rates.usd, selectedCustomer]
   );
 
   const duplicateReturnLine = useCallback(
@@ -310,6 +426,8 @@ export default function SalesReturn({
           return;
         }
 
+        recordF2ProductSelection('return', product.id, Number(selectedCustomer));
+
         setCart((prev) => [
           ...prev,
           {
@@ -323,6 +441,7 @@ export default function SalesReturn({
             unitPriceTl: data.unitPrice,
             exchangeRate: data.exchangeRate,
             returnQty: 1,
+            costUsd: productCostUsd(product, data.exchangeRate),
             isChinaReturn: false,
           },
         ]);
@@ -357,6 +476,53 @@ export default function SalesReturn({
 
   const removeLine = (rowId: string) => {
     setCart((prev) => prev.filter((row) => row.rowId !== rowId));
+  };
+
+  const removeEditLine = (rowId: string) => {
+    const row = editLines.find((line) => line.rowId === rowId);
+    if (row) {
+      setRemovedItemIds((prev) =>
+        prev.includes(row.invoiceItemId) ? prev : [...prev, row.invoiceItemId]
+      );
+    }
+    setEditLines((prev) => prev.filter((line) => line.rowId !== rowId));
+  };
+
+  const handleEditSave = async () => {
+    if (!editInvoiceId || editCustomerId === '') return;
+    if (editLines.length === 0) {
+      notify('error', 'En az bir kalem olmalı.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await axios.put(`${API_BASE}/api/sales/invoices/${editInvoiceId}`, {
+        customerId: Number(editCustomerId),
+        processedBy: editProcessedBy || null,
+        orderNotes: editNotes || undefined,
+        invoiceDate: editInvoiceDate,
+        exchangeRate: editExchangeRate,
+        ...(removedItemIds.length > 0 ? { removeItemIds: removedItemIds } : {}),
+        items: editLines.map((line) => ({
+          id: line.invoiceItemId,
+          quantity: line.quantity,
+          unitPrice: line.unitPriceTl,
+          discountPercent: 0,
+        })),
+      });
+      notify('success', `İade faturası güncellendi: ${displayInvoiceNo}`);
+      onDataChange?.();
+      onSaved?.();
+    } catch (error) {
+      const message =
+        axios.isAxiosError(error) && error.response?.data?.message
+          ? String(error.response.data.message)
+          : 'İade faturası güncellenemedi.';
+      notify('error', message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -452,6 +618,193 @@ export default function SalesReturn({
     }
   };
 
+  if (isEditMode) {
+    if (editLoading) {
+      return (
+        <div className="flex min-h-[40vh] items-center justify-center text-slate-500">
+          Fatura yükleniyor...
+        </div>
+      );
+    }
+
+    const editTotalTl = editLines.reduce(
+      (sum, line) => sum + line.quantity * line.unitPriceTl,
+      0
+    );
+
+    return (
+      <div className="space-y-4">
+        <div className="mb-2 flex items-center gap-3">
+          {onCancelEdit && (
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50"
+              title="Listeye dön"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+          )}
+          <div className="rounded-xl bg-amber-600 p-2.5 text-white">
+            <RotateCcw className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="page-title">İade Faturası Düzenle</h1>
+            <p className="text-sm text-slate-500">
+              {displayInvoiceNo} · {editCustomerLabel}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Fatura Tarihi</label>
+            <input
+              type="date"
+              value={editInvoiceDate}
+              onChange={(e) => setEditInvoiceDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">İşlemi Yapan</label>
+            <input
+              type="text"
+              value={editProcessedBy}
+              onChange={(e) => setEditProcessedBy(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Döviz Kuru</label>
+            <input
+              type="number"
+              min="0.0001"
+              step="0.0001"
+              value={editExchangeRate}
+              onChange={(e) => setEditExchangeRate(Number(e.target.value))}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">Not</label>
+          <textarea
+            rows={2}
+            value={editNotes}
+            onChange={(e) => setEditNotes(e.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+        </div>
+
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-100 text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                    SKU
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                    Ürün
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                    Adet
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                    Birim (₺)
+                  </th>
+                  <th className="w-12 px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {editLines.map((line) => (
+                  <tr key={line.rowId} className="hover:bg-slate-50/60">
+                    <td className="px-4 py-3 font-mono font-semibold">{line.productSku}</td>
+                    <td className="px-4 py-3">{line.productName}</td>
+                    <td className="px-4 py-3 text-right">
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={line.quantity}
+                        onChange={(e) => {
+                          const qty = Number(e.target.value);
+                          setEditLines((prev) =>
+                            prev.map((row) =>
+                              row.rowId === line.rowId
+                                ? { ...row, quantity: qty > 0 ? qty : row.quantity }
+                                : row
+                            )
+                          );
+                        }}
+                        className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-right text-sm"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={line.unitPriceTl}
+                        onChange={(e) => {
+                          const price = Number(e.target.value);
+                          setEditLines((prev) =>
+                            prev.map((row) =>
+                              row.rowId === line.rowId
+                                ? {
+                                    ...row,
+                                    unitPriceTl: price >= 0 ? roundPrice(price) : row.unitPriceTl,
+                                  }
+                                : row
+                            )
+                          );
+                        }}
+                        className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-right text-sm"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => removeEditLine(line.rowId)}
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {editLines.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
+                      Kalem yok
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-slate-700">
+            Toplam: {formatMoney(editTotalTl)}
+          </p>
+          <button
+            type="button"
+            onClick={handleEditSave}
+            disabled={submitting}
+            className="btn btn-lg btn-primary inline-flex items-center gap-2"
+          >
+            <Save className="h-5 w-5" />
+            {submitting ? 'Kaydediliyor...' : 'DEĞİŞİKLİKLERİ KAYDET'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (viewingInvoiceId !== null) {
     return (
       <SalesCreate
@@ -477,7 +830,7 @@ export default function SalesReturn({
         <div>
           <h1 className="page-title">Satış İade</h1>
           <p className="text-sm text-slate-500">
-            Müşteri seçin, F2 ile ürün ekleyin — her F2 seçimi ayrı satır (adet 1). Bir satırda Çin iade, diğerinde stoğa
+            Müşteri seçin, F2 ile ürün ekleyin — her F2 seçimi ayrı satır (adet 1). F8 basılı tutunca maliyet görünür
           </p>
         </div>
       </div>
@@ -583,6 +936,11 @@ export default function SalesReturn({
                       <th className="w-20 px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
                         Çin İade
                       </th>
+                      {showCosts && (
+                        <th className="w-24 px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                          Maliyet ($)
+                        </th>
+                      )}
                       <th className="w-28 px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                         Birim ($)
                       </th>
@@ -666,6 +1024,11 @@ export default function SalesReturn({
                               className="h-4 w-4 rounded border-slate-300 text-orange-600"
                             />
                           </td>
+                          {showCosts && (
+                            <td className="px-4 py-3 text-right text-sm text-slate-500 tabular-nums">
+                              {formatUsd(line.costUsd)}
+                            </td>
+                          )}
                           <td className="px-4 py-3 text-right text-sm">
                             {line.manualOverride ? (
                               <input
@@ -826,6 +1189,7 @@ export default function SalesReturn({
             partySelected={selectedCustomer !== ''}
             priceMode="tl"
             accentClass="amber"
+            showCost={showCosts}
           />
         )}
       </ProductSearchPopover>

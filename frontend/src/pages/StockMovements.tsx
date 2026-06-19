@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { ChevronDown, ChevronRight, History, Search } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
+import CustomerNameLink from '../components/CustomerNameLink';
 import {
   API_BASE,
   LIST_PAGE_SIZE,
@@ -173,7 +174,9 @@ export default function StockMovements() {
                           <p className="text-xs text-slate-400">{row.product.sku}</p>
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          <p className="font-medium text-slate-800">{row.customer.name}</p>
+                          <CustomerNameLink customerId={row.customer.id}>
+                            {row.customer.name}
+                          </CustomerNameLink>
                           <p className="text-xs text-slate-400">
                             {row.invoiceNo} · {invoiceTypeLabel(row.invoiceType)}
                           </p>

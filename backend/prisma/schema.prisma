@@ -42,16 +42,22 @@ model Category {
   updatedAt   DateTime     @updatedAt
 }
 
-model BrandModel {
-  id         Int       @id @default(autoincrement())
-  name       String
-  categoryId Int?
-  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  products   Product[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+enum BrandModelKind {
+  MARKA
+  MODEL
+}
 
-  @@unique([name, categoryId])
+model BrandModel {
+  id         Int            @id @default(autoincrement())
+  name       String
+  kind       BrandModelKind @default(MODEL)
+  categoryId Int?
+  category   Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  products   Product[]
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([name, categoryId, kind])
 }
 
 model Product {

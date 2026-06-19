@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { ArrowDownLeft, ArrowUpRight, Pencil, Search, Wallet, X } from 'lucide-react';
 import F2CustomerList from '../components/F2CustomerList';
+import CustomerNameLink from '../components/CustomerNameLink';
 import ProductSearchPopover from '../components/ProductSearchPopover';
 import { useF2CustomerSearch } from '../hooks/useF2CustomerSearch';
 import { useF2KeyboardNav } from '../hooks/useF2KeyboardNav';
@@ -18,6 +19,7 @@ import {
 
 type CustomerPaymentProps = {
   f2Trigger?: number;
+  initialCustomerId?: number;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
 };
@@ -50,6 +52,7 @@ function pickCustomerFromSearch(query: string, results: Customer[]): Customer | 
 
 export default function CustomerPayment({
   f2Trigger = 0,
+  initialCustomerId,
   onNotify,
   onDataChange,
 }: CustomerPaymentProps) {
@@ -103,6 +106,31 @@ export default function CustomerPayment({
   useEffect(() => {
     loadSafes();
   }, [loadSafes]);
+
+  useEffect(() => {
+    if (!initialCustomerId || initialCustomerId <= 0) return;
+
+    let cancelled = false;
+    const loadInitialCustomer = async () => {
+      try {
+        const response = await axios.get<{ success: boolean; data: Customer }>(
+          `${API_BASE}/api/customers/${initialCustomerId}`
+        );
+        if (!cancelled && response.data.success) {
+          const customer = response.data.data;
+          setSelectedCustomer(customer);
+          setCustomerSearch(`${customer.code} — ${customer.name}`);
+        }
+      } catch {
+        /* müşteri yüklenemedi */
+      }
+    };
+
+    void loadInitialCustomer();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialCustomerId]);
 
   const loadPayments = useCallback(async () => {
     setPaymentsLoading(true);
@@ -568,7 +596,13 @@ export default function CustomerPayment({
                     </td>
                     {!selectedCustomer && (
                       <td className="px-4 py-3 text-sm text-slate-800">
-                        {payment.customer?.name ?? '—'}
+                        {payment.customer ? (
+                          <CustomerNameLink customerId={payment.customer.id}>
+                            {payment.customer.name}
+                          </CustomerNameLink>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                     )}
                     <td className="px-4 py-3">

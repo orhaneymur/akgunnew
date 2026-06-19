@@ -19,6 +19,7 @@ import Invoices from './pages/Invoices';
 import StockList from './pages/StockList';
 import BarcodePrint from './pages/BarcodePrint';
 import CustomerList from './pages/CustomerList';
+import CustomerCreate from './pages/CustomerCreate';
 import CustomerPayment from './pages/CustomerPayment';
 import CustomerBalances from './pages/CustomerBalances';
 import ProfitReport from './pages/ProfitReport';
@@ -33,8 +34,10 @@ import StockMovements from './pages/StockMovements';
 import StockValueReport from './pages/StockValueReport';
 import CashFlowReport from './pages/CashFlowReport';
 import CustomerStatement from './pages/CustomerStatement';
+import CustomerDetail from './pages/CustomerDetail';
 import AnalyticsReport from './pages/AnalyticsReport';
 import Login from './pages/Login';
+import { AppNavigationContext } from './context/AppNavigationContext';
 
 const F2_ENABLED_PAGES: PageId[] = [
   'sales',
@@ -57,6 +60,9 @@ function App() {
     () => localStorage.getItem(AUTH_STORAGE_KEY) === 'true'
   );
   const [activePage, setActivePage] = useState<PageId>(initialUrl.page);
+  const [activeCustomerId, setActiveCustomerId] = useState<number | undefined>(
+    initialUrl.customerId
+  );
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>(initialUrl.invoiceFilter);
   const [preOrderOnly, setPreOrderOnly] = useState(initialUrl.preOrderOnly);
   const [openMenus, setOpenMenus] =
@@ -130,6 +136,7 @@ function App() {
 
     setActivePage(page);
     setMobileNavOpen(false);
+    setActiveCustomerId(options?.customerId);
 
     if (page === 'invoices') {
       setInvoiceFilter(options?.invoiceFilter ?? 'ALL');
@@ -152,9 +159,20 @@ function App() {
       buildPageUrl(page, {
         invoiceFilter: options?.invoiceFilter,
         preOrderOnly: page === 'pre-orders' || options?.preOrderOnly,
+        customerId: options?.customerId,
       })
     );
   }, []);
+
+  const navigationValue = useMemo(
+    () => ({
+      navigateTo,
+      navigateToCustomer: (customerId: number) => {
+        navigateTo('customer-detail', { customerId });
+      },
+    }),
+    [navigateTo]
+  );
 
   const toggleMenu = useCallback((id: MenuCategoryId) => {
     setOpenMenus((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -297,10 +315,27 @@ function App() {
         return <BarcodePrint />;
       case 'customer-list':
         return <CustomerList onNotify={showNotification} />;
+      case 'customer-create':
+        return (
+          <CustomerCreate onNotify={showNotification} onNavigate={navigateTo} />
+        );
+      case 'customer-detail':
+        if (!activeCustomerId) {
+          return <CustomerList onNotify={showNotification} />;
+        }
+        return (
+          <CustomerDetail
+            customerId={activeCustomerId}
+            onNavigate={navigateTo}
+            onNotify={showNotification}
+            onDataChange={handleDataChange}
+          />
+        );
       case 'customer-payments':
         return (
           <CustomerPayment
             f2Trigger={f2Trigger}
+            initialCustomerId={activeCustomerId}
             onNotify={showNotification}
             onDataChange={handleDataChange}
           />
@@ -316,7 +351,7 @@ function App() {
       case 'report-cash-flow':
         return <CashFlowReport />;
       case 'report-customer-statement':
-        return <CustomerStatement />;
+        return <CustomerStatement initialCustomerId={activeCustomerId} />;
       case 'def-products':
         return <CategoryManager />;
       case 'def-safes':
@@ -328,6 +363,7 @@ function App() {
     }
   }, [
     activePage,
+    activeCustomerId,
     f2Trigger,
     showNotification,
     dashboardRefreshKey,
@@ -342,6 +378,7 @@ function App() {
   }
 
   return (
+    <AppNavigationContext.Provider value={navigationValue}>
     <div className="flex min-h-[100dvh] overflow-x-hidden bg-slate-100 text-slate-900">
       {notification && (
         <div
@@ -367,7 +404,6 @@ function App() {
         openMenus={openMenus}
         mobileOpen={mobileNavOpen}
         onToggleMenu={toggleMenu}
-        onNavigate={navigateTo}
         onLogout={handleLogout}
         onMobileClose={() => setMobileNavOpen(false)}
       />
@@ -467,6 +503,7 @@ function App() {
         <main className="flex-1 overflow-x-hidden p-3 sm:p-4 lg:p-6 print:p-0">{pageContent}</main>
       </div>
     </div>
+    </AppNavigationContext.Provider>
   );
 }
 

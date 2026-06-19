@@ -10,7 +10,10 @@ import {
   type InvoiceType,
 } from '../lib/api';
 import ExcelActions from '../components/ExcelActions';
+import CustomerNameLink from '../components/CustomerNameLink';
 import SalesCreate from './SalesCreate';
+import PurchaseCreate from './PurchaseCreate';
+import SalesReturn from './SalesReturn';
 
 type Invoice = {
   id: number;
@@ -55,7 +58,10 @@ export default function Invoices({
   const [appliedCustomerSearch, setAppliedCustomerSearch] = useState('');
   const [appliedProductSearch, setAppliedProductSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
+  const [editingInvoice, setEditingInvoice] = useState<{
+    id: number;
+    type: string;
+  } | null>(null);
 
   const notify = useCallback(
     (type: 'success' | 'error', message: string) => onNotify?.(type, message),
@@ -114,23 +120,20 @@ export default function Invoices({
 
   const hasActiveSearch = Boolean(appliedCustomerSearch.trim() || appliedProductSearch.trim());
 
-  const openEditor = useCallback(
-    (inv: Invoice) => {
-      if (inv.type !== 'SATIS') {
-        notify('error', 'Alış ve iade faturaları bu ekrandan düzenlenemez.');
-        return;
-      }
-      setEditingInvoiceId(inv.id);
-    },
-    [notify]
-  );
+  const openEditor = useCallback((inv: Invoice) => {
+    if (!['SATIS', 'ALIS', 'IADE'].includes(inv.type)) {
+      notify('error', 'Bu fatura türü düzenlenemez.');
+      return;
+    }
+    setEditingInvoice({ id: inv.id, type: inv.type });
+  }, [notify]);
 
   const closeEditor = useCallback(() => {
-    setEditingInvoiceId(null);
+    setEditingInvoice(null);
   }, []);
 
   const handleSaved = useCallback(() => {
-    setEditingInvoiceId(null);
+    setEditingInvoice(null);
     loadInvoices();
     onDataChange?.();
   }, [loadInvoices, onDataChange]);
@@ -142,11 +145,37 @@ export default function Invoices({
     { value: 'IADE', label: 'İade' },
   ];
 
-  if (editingInvoiceId !== null) {
+  if (editingInvoice) {
+    if (editingInvoice.type === 'ALIS') {
+      return (
+        <PurchaseCreate
+          key={editingInvoice.id}
+          editInvoiceId={editingInvoice.id}
+          f2Trigger={f2Trigger}
+          onNotify={onNotify}
+          onDataChange={onDataChange}
+          onCancelEdit={closeEditor}
+          onSaved={handleSaved}
+        />
+      );
+    }
+    if (editingInvoice.type === 'IADE') {
+      return (
+        <SalesReturn
+          key={editingInvoice.id}
+          editInvoiceId={editingInvoice.id}
+          f2Trigger={f2Trigger}
+          onNotify={onNotify}
+          onDataChange={onDataChange}
+          onCancelEdit={closeEditor}
+          onSaved={handleSaved}
+        />
+      );
+    }
     return (
       <SalesCreate
-        key={editingInvoiceId}
-        editInvoiceId={editingInvoiceId}
+        key={editingInvoice.id}
+        editInvoiceId={editingInvoice.id}
         f2Trigger={f2Trigger}
         onNotify={onNotify}
         onDataChange={onDataChange}
@@ -304,17 +333,19 @@ export default function Invoices({
                 invoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-slate-50/60">
                     <td className="px-4 py-3 text-sm font-semibold text-slate-900">
-                      {inv.type === 'SATIS' ? (
-                        <button
-                          type="button"
-                          onClick={() => openEditor(inv)}
-                          className="text-left text-violet-700 hover:text-violet-900 hover:underline"
-                        >
-                          {inv.invoiceNo}
-                        </button>
-                      ) : (
-                        inv.invoiceNo
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => openEditor(inv)}
+                        className={`text-left hover:underline ${
+                          inv.type === 'SATIS'
+                            ? 'text-violet-700 hover:text-violet-900'
+                            : inv.type === 'ALIS'
+                              ? 'text-rose-700 hover:text-rose-900'
+                              : 'text-amber-700 hover:text-amber-900'
+                        }`}
+                      >
+                        {inv.invoiceNo}
+                      </button>
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -329,7 +360,9 @@ export default function Invoices({
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm text-slate-800">{inv.customer.name}</p>
+                      <CustomerNameLink customerId={inv.customer.id}>
+                        {inv.customer.name}
+                      </CustomerNameLink>
                       <p className="text-xs text-slate-400">{inv.customer.code}</p>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{inv.branch.name}</td>
@@ -340,16 +373,20 @@ export default function Invoices({
                       {formatDate(inv.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {inv.type === 'SATIS' && (
-                        <button
-                          type="button"
-                          onClick={() => openEditor(inv)}
-                          className="rounded-lg p-1.5 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
-                          title="Düzenle"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => openEditor(inv)}
+                        className={`rounded-lg p-1.5 text-slate-400 hover:bg-slate-50 ${
+                          inv.type === 'SATIS'
+                            ? 'hover:text-violet-600'
+                            : inv.type === 'ALIS'
+                              ? 'hover:text-rose-600'
+                              : 'hover:text-amber-600'
+                        }`}
+                        title="Düzenle"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}

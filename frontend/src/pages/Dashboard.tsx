@@ -6,10 +6,13 @@ import {
   Eye,
   FileInput,
   FileOutput,
+  Pencil,
   PlusCircle,
   RotateCcw,
+  Save,
   ShoppingCart,
   Wallet,
+  X,
 } from 'lucide-react';
 import {
   API_BASE,
@@ -19,8 +22,11 @@ import {
   invoiceTypeLabel,
   invoiceTypeStyles,
 } from '../lib/api';
+import CustomerNameLink from '../components/CustomerNameLink';
 import type { NavigateFn } from '../lib/navigation';
 import SalesCreate from './SalesCreate';
+import PurchaseCreate from './PurchaseCreate';
+import SalesReturn from './SalesReturn';
 
 type SafeBalance = {
   id: number;
@@ -37,7 +43,7 @@ type RecentInvoice = {
   isPreOrder?: boolean;
   totalAmountTl: number;
   createdAt: string;
-  customer: { code: string; name: string };
+  customer: { id: number; code: string; name: string };
 };
 
 type DashboardProps = {
@@ -55,7 +61,8 @@ type RecentPayment = {
   amount: number;
   description: string;
   createdAt: string;
-  safe: { name: string; currency: string };
+  safe: { id: number; name: string; currency: string };
+  customer: { id: number; code: string; name: string } | null;
 };
 
 type DashboardData = {
@@ -75,7 +82,16 @@ export default function Dashboard({
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
+  const [editingInvoice, setEditingInvoice] = useState<{
+    id: number;
+    type: string;
+  } | null>(null);
+  const [editingPayment, setEditingPayment] = useState<RecentPayment | null>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editType, setEditType] = useState<'GIRIS' | 'CIKIS'>('GIRIS');
+  const [editSafeId, setEditSafeId] = useState<number | ''>('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   const notify = useCallback(
     (type: 'success' | 'error', message: string) => onNotify?.(type, message),
@@ -106,34 +122,88 @@ export default function Dashboard({
   }, []);
 
   useEffect(() => {
-    setEditingInvoiceId(null);
+    setEditingInvoice(null);
   }, [refreshKey]);
 
   useEffect(() => {
-    if (editingInvoiceId === null) {
+    if (editingInvoice === null) {
       void loadDashboard();
     }
-  }, [refreshKey, editingInvoiceId, loadDashboard]);
+  }, [refreshKey, editingInvoice, loadDashboard]);
 
-  const openEditor = useCallback(
-    (inv: RecentInvoice) => {
-      if (inv.type !== 'SATIS') {
-        notify('error', 'Alış ve iade faturaları bu ekrandan düzenlenemez.');
-        return;
-      }
-      setEditingInvoiceId(inv.id);
-    },
-    [notify]
-  );
+  const openEditor = useCallback((inv: RecentInvoice) => {
+    if (!['SATIS', 'ALIS', 'IADE'].includes(inv.type)) {
+      notify('error', 'Bu fatura türü düzenlenemez.');
+      return;
+    }
+    setEditingInvoice({ id: inv.id, type: inv.type });
+  }, [notify]);
 
   const closeEditor = useCallback(() => {
-    setEditingInvoiceId(null);
+    setEditingInvoice(null);
   }, []);
 
   const handleSaved = useCallback(() => {
-    setEditingInvoiceId(null);
+    setEditingInvoice(null);
     onDataChange?.();
   }, [onDataChange]);
+
+  const openPaymentEdit = useCallback((payment: RecentPayment) => {
+    if (!payment.customer) {
+      notify('error', 'Bu kasa hareketi cari kaydı olmadığı için düzenlenemez.');
+      return;
+    }
+    setEditingPayment(payment);
+    setEditAmount(String(payment.amount));
+    setEditDescription(payment.description);
+    setEditType(payment.type);
+    setEditSafeId(payment.safe.id);
+  }, [notify]);
+
+  const closePaymentEdit = useCallback(() => {
+    setEditingPayment(null);
+  }, []);
+
+  const handleSavePaymentEdit = async () => {
+    if (!editingPayment?.customer) return;
+    const parsedAmount = Number(editAmount.replace(',', '.'));
+    if (!parsedAmount || parsedAmount <= 0) {
+      notify('error', 'Geçerli bir tutar girin.');
+      return;
+    }
+    if (editSafeId === '') {
+      notify('error', 'Kasa seçin.');
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      const response = await axios.put(
+        `${API_BASE}/api/customers/payment/${editingPayment.id}`,
+        {
+          amount: parsedAmount,
+          type: editType,
+          description: editDescription.trim() || undefined,
+          safeId: Number(editSafeId),
+          customerId: editingPayment.customer.id,
+        }
+      );
+      if (response.data.success) {
+        notify('success', 'Kasa hareketi güncellendi.');
+        closePaymentEdit();
+        await loadDashboard();
+        onDataChange?.();
+      }
+    } catch (error) {
+      const message =
+        axios.isAxiosError(error) && error.response?.data?.message
+          ? String(error.response.data.message)
+          : 'Güncelleme başarısız.';
+      notify('error', message);
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
 
   const quickActions = [
     { id: 'sales' as const, label: 'Satış Yap', icon: ShoppingCart, color: 'bg-emerald-600' },
@@ -149,7 +219,7 @@ export default function Dashboard({
     },
   ];
 
-  if (loading && editingInvoiceId === null) {
+  if (loading && editingInvoice === null) {
     return (
       <div className="flex h-48 items-center justify-center">
         <p className="text-sm text-slate-400">Yükleniyor...</p>
@@ -157,11 +227,37 @@ export default function Dashboard({
     );
   }
 
-  if (editingInvoiceId !== null) {
+  if (editingInvoice) {
+    if (editingInvoice.type === 'ALIS') {
+      return (
+        <PurchaseCreate
+          key={editingInvoice.id}
+          editInvoiceId={editingInvoice.id}
+          f2Trigger={f2Trigger}
+          onNotify={onNotify}
+          onDataChange={onDataChange}
+          onCancelEdit={closeEditor}
+          onSaved={handleSaved}
+        />
+      );
+    }
+    if (editingInvoice.type === 'IADE') {
+      return (
+        <SalesReturn
+          key={editingInvoice.id}
+          editInvoiceId={editingInvoice.id}
+          f2Trigger={f2Trigger}
+          onNotify={onNotify}
+          onDataChange={onDataChange}
+          onCancelEdit={closeEditor}
+          onSaved={handleSaved}
+        />
+      );
+    }
     return (
       <SalesCreate
-        key={editingInvoiceId}
-        editInvoiceId={editingInvoiceId}
+        key={editingInvoice.id}
+        editInvoiceId={editingInvoice.id}
         f2Trigger={f2Trigger}
         onNotify={onNotify}
         onDataChange={onDataChange}
@@ -255,7 +351,7 @@ export default function Dashboard({
                         Ön Sipariş
                       </span>
                     )}
-                    {inv.type === 'SATIS' ? (
+                    {['SATIS', 'ALIS', 'IADE'].includes(inv.type) ? (
                       <button
                         type="button"
                         onClick={() => openEditor(inv)}
@@ -270,14 +366,21 @@ export default function Dashboard({
                     )}
                   </div>
                   <p className="truncate text-xs text-slate-400">
-                    {inv.customer.name} · {formatDate(inv.createdAt)}
+                    <CustomerNameLink
+                      customerId={inv.customer.id}
+                      className="text-xs font-normal"
+                    >
+                      {inv.customer.name}
+                    </CustomerNameLink>
+                    {' · '}
+                    {formatDate(inv.createdAt)}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="text-sm font-semibold text-slate-800">
                     {formatMoney(inv.totalAmountTl)}
                   </span>
-                  {inv.type === 'SATIS' && (
+                  {['SATIS', 'ALIS', 'IADE'].includes(inv.type) && (
                     <button
                       type="button"
                       onClick={() => openEditor(inv)}
@@ -302,7 +405,10 @@ export default function Dashboard({
           </div>
           <ul className="divide-y divide-slate-50">
             {data.recentPayments.map((payment) => (
-              <li key={payment.id} className="flex items-center justify-between gap-2 px-4 py-3">
+              <li
+                key={payment.id}
+                className="flex items-center justify-between gap-2 px-4 py-3 hover:bg-slate-50/80"
+              >
                 <div className="flex min-w-0 items-center gap-2">
                   <span
                     className={`shrink-0 rounded p-1 ${
@@ -320,18 +426,41 @@ export default function Dashboard({
                   <div className="min-w-0">
                     <p className="truncate text-sm text-slate-800">{payment.description}</p>
                     <p className="text-xs text-slate-400">
+                      {payment.customer ? (
+                        <>
+                          <CustomerNameLink
+                            customerId={payment.customer.id}
+                            className="text-xs font-normal"
+                          >
+                            {payment.customer.name}
+                          </CustomerNameLink>
+                          {' · '}
+                        </>
+                      ) : null}
                       {payment.safe.name} · {formatDate(payment.createdAt)}
                     </p>
                   </div>
                 </div>
-                <span
-                  className={`shrink-0 text-sm font-semibold ${
-                    payment.type === 'GIRIS' ? 'text-emerald-700' : 'text-red-600'
-                  }`}
-                >
-                  {payment.type === 'GIRIS' ? '+' : '-'}
-                  {formatMoney(payment.amount, payment.safe.currency)}
-                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`text-sm font-semibold ${
+                      payment.type === 'GIRIS' ? 'text-emerald-700' : 'text-red-600'
+                    }`}
+                  >
+                    {payment.type === 'GIRIS' ? '+' : '-'}
+                    {formatMoney(payment.amount, payment.safe.currency)}
+                  </span>
+                  {payment.customer && (
+                    <button
+                      type="button"
+                      onClick={() => openPaymentEdit(payment)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+                      title="Düzenle"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
             {data.recentPayments.length === 0 && (
@@ -352,6 +481,106 @@ export default function Dashboard({
             Raporlar → İşletme Özeti
           </button>
         </p>
+      )}
+
+      {editingPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Kasa Hareketi Düzenle</h3>
+                {editingPayment.customer && (
+                  <p className="mt-1 text-sm text-slate-500">
+                    {editingPayment.customer.code} — {editingPayment.customer.name}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={closePaymentEdit}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Kapat"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  İşlem Tipi
+                </label>
+                <select
+                  value={editType}
+                  onChange={(e) => setEditType(e.target.value as 'GIRIS' | 'CIKIS')}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="GIRIS">Tahsilat (Giriş)</option>
+                  <option value="CIKIS">Ödeme (Çıkış)</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Kasa</label>
+                <select
+                  value={editSafeId}
+                  onChange={(e) =>
+                    setEditSafeId(e.target.value ? Number(e.target.value) : '')
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  {data.safeBalances.map((safe) => (
+                    <option key={safe.id} value={safe.id}>
+                      {safe.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Tutar (TL)
+                </label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Açıklama
+                </label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={3}
+                  className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-2">
+              <button
+                type="button"
+                onClick={closePaymentEdit}
+                className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSavePaymentEdit()}
+                disabled={editSubmitting}
+                className="btn btn-secondary flex flex-1 items-center justify-center gap-2"
+              >
+                <Save className="h-4 w-4" />
+                {editSubmitting ? 'Kaydediliyor...' : 'Kaydet'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

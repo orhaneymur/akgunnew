@@ -20,6 +20,7 @@ import {
   type Customer,
   type PaginatedListResponse,
 } from '../lib/api';
+import { recordF2ProductSelection } from '../lib/f2LastProduct';
 
 type Branch = {
   id: number;
@@ -173,7 +174,15 @@ export default function SalesCreate({
   const [fulfilling, setFulfilling] = useState(false);
   const [displayInvoiceNo, setDisplayInvoiceNo] = useState('');
   const [removedItemIds, setRemovedItemIds] = useState<number[]>([]);
+  const [printBalance, setPrintBalance] = useState<{
+    before: number;
+    after: number;
+  } | null>(null);
   const showCosts = useHoldKeyReveal('F8');
+
+  const handlePrintReceipt = useCallback(() => {
+    window.print();
+  }, []);
 
   const customerSearchRef = useRef<HTMLInputElement>(null);
   const customerDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -223,6 +232,26 @@ export default function SalesCreate({
     () => Math.round(totalUsd * (exchangeRate > 0 ? exchangeRate : 1) * 100) / 100,
     [totalUsd, exchangeRate]
   );
+
+  const receiptBalance = useMemo(() => {
+    if (!selectedCustomer) return null;
+    const isCari = paymentMethod === 'Cari';
+    const hasBalance = Math.abs(selectedCustomer.balance) > 0.0001;
+    if (!isCari && !hasBalance) return null;
+
+    if (printBalance) return printBalance;
+
+    if (isEditMode && isCari) {
+      return {
+        before: roundPrice(selectedCustomer.balance - totalTl),
+        after: selectedCustomer.balance,
+      };
+    }
+
+    const before = selectedCustomer.balance;
+    const after = isCari ? roundPrice(before + totalTl) : before;
+    return { before, after };
+  }, [selectedCustomer, paymentMethod, printBalance, isEditMode, totalTl]);
 
   const notify = useCallback(
     (type: 'success' | 'error', message: string) => {
@@ -531,6 +560,7 @@ export default function SalesCreate({
 
   const addProductToCart = useCallback(
     (product: F2Product | Product) => {
+      recordF2ProductSelection('sales', product.id, selectedCustomer?.id ?? null);
       const { unitPriceUsd, costUsd } = resolveProductUsd(product);
       const rowId = `row-${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       lastAddedRowId.current = rowId;
@@ -549,7 +579,7 @@ export default function SalesCreate({
 
       closeF2Modal();
     },
-    [closeF2Modal, resolveProductUsd]
+    [closeF2Modal, resolveProductUsd, selectedCustomer]
   );
 
   const handleModalKeyDown = useF2KeyboardNav({
@@ -618,6 +648,7 @@ export default function SalesCreate({
     setSelectedCustomer(customer);
     setCustomerSearch(`${customer.code} — ${customer.name}`);
     setCustomerDropdownOpen(false);
+    setPrintBalance(null);
   };
 
   const handleSubmit = async () => {
@@ -730,6 +761,29 @@ export default function SalesCreate({
 
       if (response.data.success) {
         const savedCustomer = response.data.data?.customer;
+        const balanceBefore =
+          typeof response.data.data?.balanceBefore === 'number'
+            ? response.data.data.balanceBefore
+            : customer.balance;
+        const balanceAfter =
+          typeof response.data.data?.balanceAfter === 'number'
+            ? response.data.data.balanceAfter
+            : paymentMethod === 'Cari'
+              ? roundPrice(balanceBefore + totalTl)
+              : balanceBefore;
+
+        const showReceiptBalance =
+          paymentMethod === 'Cari' || Math.abs(balanceBefore) > 0.0001;
+        if (showReceiptBalance) {
+          setPrintBalance({ before: balanceBefore, after: balanceAfter });
+        }
+
+        if (savedCustomer?.balance != null) {
+          setSelectedCustomer({ ...customer, balance: savedCustomer.balance });
+        } else if (paymentMethod === 'Cari') {
+          setSelectedCustomer({ ...customer, balance: balanceAfter });
+        }
+
         notify(
           'success',
           `${isPreOrder ? 'Ön sipariş' : 'Satış'} kaydedildi! Fatura: ${response.data.data?.invoiceNo ?? ''}${
@@ -747,6 +801,7 @@ export default function SalesCreate({
           setDueDate('');
           setIsPreOrder(false);
           setShouldPrint(false);
+          setPrintBalance(null);
           setSelectedCustomer(null);
           setCustomerSearch('');
           onDataChange?.();
@@ -777,6 +832,23 @@ export default function SalesCreate({
 
   return (
     <div className="space-y-4 print:space-y-2">
+      {isEditMode && (
+        <div className="hidden print:block border-b border-slate-300 pb-3 mb-2 text-center text-slate-900">
+          <p className="text-lg font-bold">{displayInvoiceNo}</p>
+          {selectedCustomer && (
+            <p className="text-sm font-medium mt-1">
+              {selectedCustomer.code} — {selectedCustomer.name}
+            </p>
+          )}
+          <p className="text-xs text-slate-600 mt-1">
+            {invoiceDate}
+            {processedBy ? ` · ${processedBy}` : ''}
+            {paymentMethod ? ` · ${paymentMethod}` : ''}
+            {paymentType ? ` · ${paymentType}` : ''}
+          </p>
+        </div>
+      )}
+
       <div className="mb-2 flex items-center gap-3 print:hidden">
         {isEditMode && onCancelEdit && (
           <button
@@ -915,11 +987,18 @@ export default function SalesCreate({
                 className={`rounded-lg border px-3 py-2 text-sm font-bold ${
                   selectedCustomer && selectedCustomer.balance > 0
                     ? 'bg-red-50 border-red-200 text-red-700'
-                    : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                    : selectedCustomer && selectedCustomer.balance < 0
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      : 'bg-slate-50 border-slate-200 text-slate-700'
                 }`}
               >
                 {selectedCustomer ? formatMoney(selectedCustomer.balance) : '—'}
               </div>
+              {selectedCustomer && paymentMethod === 'Cari' && cart.length > 0 && (
+                <p className="mt-1 text-xs text-indigo-600 font-medium">
+                  Satış sonrası tahmini: {formatMoney(selectedCustomer.balance + totalTl)}
+                </p>
+              )}
             </div>
           </div>
         </section>
@@ -1222,6 +1301,24 @@ export default function SalesCreate({
             </p>
           </div>
 
+          {receiptBalance && (
+            <div className="hidden print:block border-t border-slate-400 pt-3 mt-2 space-y-1 text-center text-slate-900">
+              <p className="text-xs uppercase tracking-wide text-slate-600">
+                Cari Bakiye Özeti
+              </p>
+              <p className="text-sm">
+                Önceki Bakiye:{' '}
+                <span className="font-semibold tabular-nums">
+                  {formatMoney(receiptBalance.before)}
+                </span>
+              </p>
+              <p className="text-sm font-bold">
+                Satış Sonrası Bakiye:{' '}
+                <span className="tabular-nums">{formatMoney(receiptBalance.after)}</span>
+              </p>
+            </div>
+          )}
+
           <div className="space-y-2 border-t border-slate-200 pt-2 print:hidden">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -1232,17 +1329,19 @@ export default function SalesCreate({
               />
               <span className="text-sm font-medium text-slate-700">Ön Sipariş</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={shouldPrint}
-                onChange={(e) => setShouldPrint(e.target.checked)}
-                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-              />
-              <span className="text-sm font-medium text-slate-700 flex items-center gap-1">
-                <Printer className="w-4 h-4" /> Yazdır
-              </span>
-            </label>
+            {!isEditMode && (
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={shouldPrint}
+                  onChange={(e) => setShouldPrint(e.target.checked)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-sm font-medium text-slate-700 flex items-center gap-1">
+                  <Printer className="w-4 h-4" /> Kayıttan sonra yazdır
+                </span>
+              </label>
+            )}
           </div>
 
           <div className="print:hidden">
@@ -1270,6 +1369,18 @@ export default function SalesCreate({
             >
               <CheckCircle className="w-5 h-5" />
               {fulfilling ? 'Tamamlanıyor...' : 'Stok Düş (Ön Siparişi Tamamla)'}
+            </button>
+          )}
+
+          {isEditMode && (
+            <button
+              type="button"
+              onClick={handlePrintReceipt}
+              disabled={cart.length === 0}
+              className="btn btn-block border-2 border-indigo-300 bg-indigo-50 font-bold text-indigo-800 hover:bg-indigo-100 print:hidden"
+            >
+              <Printer className="w-5 h-5" />
+              Fiş Yazdır
             </button>
           )}
 

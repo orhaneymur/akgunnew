@@ -34,6 +34,15 @@ fk_exists() {
   [[ "$count" -gt 0 ]]
 }
 
+index_exists() {
+  local table="$1"
+  local index_name="$2"
+  local count
+  count="$(kubectl exec "$POD" -- mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" "${MYSQL_DATABASE}" -N -e \
+    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA='${MYSQL_DATABASE}' AND TABLE_NAME='${table}' AND INDEX_NAME='${index_name}';")"
+  [[ "$count" -gt 0 ]]
+}
+
 echo "==> Invoice.originalInvoiceId..."
 if ! column_exists "Invoice" "originalInvoiceId"; then
   mysql_exec "ALTER TABLE \`Invoice\` ADD COLUMN \`originalInvoiceId\` INTEGER NULL;"
@@ -100,6 +109,24 @@ if ! column_exists "Product" "description"; then
   echo "    + Product.description eklendi"
 else
   echo "    = Product.description zaten var"
+fi
+
+echo "==> BrandModel kind kolonu (v1.8.22+)..."
+if ! column_exists "BrandModel" "kind"; then
+  mysql_exec "ALTER TABLE \`BrandModel\` ADD COLUMN \`kind\` VARCHAR(191) NOT NULL DEFAULT 'MODEL';"
+  echo "    + BrandModel.kind eklendi"
+else
+  echo "    = BrandModel.kind zaten var"
+fi
+if index_exists "BrandModel" "BrandModel_name_categoryId_key"; then
+  mysql_exec "ALTER TABLE \`BrandModel\` DROP INDEX \`BrandModel_name_categoryId_key\`;"
+  echo "    + eski BrandModel unique kaldirildi"
+fi
+if ! index_exists "BrandModel" "BrandModel_name_categoryId_kind_key"; then
+  mysql_exec "ALTER TABLE \`BrandModel\` ADD UNIQUE INDEX \`BrandModel_name_categoryId_kind_key\` (\`name\`, \`categoryId\`, \`kind\`);"
+  echo "    + BrandModel name+category+kind unique eklendi"
+else
+  echo "    = BrandModel unique zaten var"
 fi
 
 echo "==> Migration tamam."

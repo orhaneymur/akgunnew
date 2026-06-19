@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { API_BASE, ensureArray } from '../lib/api';
+import { getLastF2ProductId } from '../lib/f2LastProduct';
 
 export type F2ProductContext = 'sales' | 'purchase' | 'return';
 
@@ -89,6 +90,10 @@ export function useF2ProductSearch(options: {
         const trimmed = query.trim();
         if (trimmed) params.search = trimmed;
         if (partyId) params.customerId = String(partyId);
+        if (!trimmed && pageNumber === 1) {
+          const pinId = getLastF2ProductId(context, partyId);
+          if (pinId) params.prioritizeProductId = String(pinId);
+        }
 
         const response = await axios.get<ProductsResponse>(`${API_BASE}/api/sales/products`, {
           params,

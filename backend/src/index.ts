@@ -664,34 +664,56 @@ async function searchProductsForF2(options: {
   customerId: number | null;
   context: 'sales' | 'purchase' | 'return';
   rate: number;
+  prioritizeProductId?: number | null;
 }) {
-  const { search, page, limit, customerId, context, rate } = options;
+  const { search, page, limit, customerId, context, rate, prioritizeProductId } = options;
   const trimmedSearch = search?.trim() ?? '';
   const where = trimmedSearch ? buildProductSearchWhere(trimmedSearch) : {};
   const skip = (page - 1) * limit;
   const invoiceType = context === 'purchase' ? 'ALIS' : 'SATIS';
 
+  let pinnedProduct: ProductSearchRow | null = null;
+  if (
+    page === 1 &&
+    !trimmedSearch &&
+    prioritizeProductId &&
+    prioritizeProductId > 0
+  ) {
+    pinnedProduct = await prisma.product.findUnique({
+      where: { id: prioritizeProductId },
+      select: PRODUCT_SEARCH_SELECT,
+    });
+  }
+
+  const listWhere: Prisma.ProductWhereInput = pinnedProduct
+    ? { AND: [where, { id: { not: pinnedProduct.id } }] }
+    : where;
+
+  const listTake = pinnedProduct ? Math.max(0, limit - 1) : limit;
+
   const [products, totalCount] = await Promise.all([
     prisma.product.findMany({
-      where,
+      where: listWhere,
       orderBy: { name: 'asc' },
-      take: limit,
+      take: listTake,
       skip,
       select: PRODUCT_SEARCH_SELECT,
     }),
     prisma.product.count({ where }),
   ]);
 
+  const allProducts = pinnedProduct ? [pinnedProduct, ...products] : products;
+
   const partyPriceMap =
     customerId && !Number.isNaN(customerId)
       ? await getLastPartyPriceMap(
-          products.map((product) => product.id),
+          allProducts.map((product) => product.id),
           customerId,
           invoiceType
         )
       : new Map<number, number>();
 
-  const data = products.map((product) =>
+  const data = allProducts.map((product) =>
     mapProductSearchExtras(
       product,
       partyPriceMap.get(product.id) ?? null,
@@ -2296,6 +2318,7 @@ app.put<{
     taxOffice?: string;
     taxNumber?: string;
     creditLimit?: number;
+    balance?: number;
   };
 }>('/api/customers/:id', async (request, reply) => {
   const id = Number(request.params.id);
@@ -2328,6 +2351,7 @@ app.put<{
     taxOffice,
     taxNumber,
     creditLimit,
+    balance,
   } = request.body ?? {};
 
   if (name !== undefined && !name.trim()) {
@@ -2359,6 +2383,7 @@ app.put<{
           ? { taxNumber: taxNumber.trim() || null }
           : {}),
         ...(creditLimit !== undefined ? { creditLimit } : {}),
+        ...(balance !== undefined && Number.isFinite(balance) ? { balance } : {}),
       },
     });
 
@@ -2659,6 +2684,7 @@ app.get<{
     page?: string;
     limit?: string;
     context?: string;
+    prioritizeProductId?: string;
   };
 }>('/api/sales/products', async (request, reply) => {
   const {
@@ -2668,9 +2694,11 @@ app.get<{
     page: pageQuery,
     limit: limitQuery,
     context: contextQuery,
+    prioritizeProductId: prioritizeQuery,
   } = request.query;
 
   const parsedCustomerId = customerId ? Number(customerId) : null;
+  const parsedPrioritizeId = prioritizeQuery ? Number(prioritizeQuery) : null;
   const rate =
     exchangeRateQuery && Number(exchangeRateQuery) > 0
       ? Number(exchangeRateQuery)
@@ -2690,6 +2718,8 @@ app.get<{
         parsedCustomerId && !Number.isNaN(parsedCustomerId) ? parsedCustomerId : null,
       context,
       rate,
+      prioritizeProductId:
+        parsedPrioritizeId && parsedPrioritizeId > 0 ? parsedPrioritizeId : null,
     });
 
     return {
@@ -2768,7 +2798,7 @@ app.post<{
 
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
-    select: { id: true, code: true, name: true },
+    select: { id: true, code: true, name: true, balance: true },
   });
 
   if (!customer) {
@@ -2778,6 +2808,8 @@ app.post<{
       errors: null,
     });
   }
+
+  const balanceBefore = roundMoney(customer.balance);
 
   const rate = exchangeRate > 0 ? Number(exchangeRate) : 1;
   const normalizedItems = items.map(normalizeStoreItem);
@@ -2890,9 +2922,20 @@ app.post<{
       return createdInvoice;
     });
 
+    const updatedCustomer = await prisma.customer.findUnique({
+      where: { id: customer.id },
+      select: { id: true, code: true, name: true, balance: true },
+    });
+    const balanceAfter = roundMoney(updatedCustomer?.balance ?? balanceBefore);
+
     return reply.status(201).send({
       success: true,
-      data: invoice,
+      data: {
+        ...invoice,
+        customer: updatedCustomer ?? customer,
+        balanceBefore,
+        balanceAfter,
+      },
       message: 'Invoice created successfully.',
     });
   } catch (error) {
@@ -3188,6 +3231,7 @@ app.post<{
     categoryId?: number;
     brand?: string;
     model?: string;
+    brandModelId?: number;
     appearance?: string;
     quality?: string;
     rbmPrice?: number;
@@ -3205,6 +3249,7 @@ app.post<{
     categoryId,
     brand,
     model,
+    brandModelId,
     appearance,
     quality,
     rbmPrice,
@@ -3238,6 +3283,29 @@ app.post<{
         : 0;
 
   try {
+    let resolvedBrand = brand?.trim() || null;
+    let resolvedModel = model?.trim() || null;
+    let resolvedBrandModelId: number | null = null;
+
+    if (brandModelId && brandModelId > 0) {
+      const brandModel = await prisma.brandModel.findUnique({
+        where: { id: brandModelId },
+      });
+      if (!brandModel) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Seçilen model tanımı bulunamadı.',
+          errors: null,
+        });
+      }
+      resolvedBrandModelId = brandModel.id;
+      if (brandModel.kind === 'MODEL') {
+        resolvedModel = brandModel.name;
+      } else if (!resolvedBrand) {
+        resolvedBrand = brandModel.name;
+      }
+    }
+
     const product = await prisma.$transaction(async (tx) => {
       const created = await tx.product.create({
         data: {
@@ -3248,8 +3316,9 @@ app.post<{
           priceUsd,
           barcode: barcode?.trim() || null,
           categoryId: categoryId ?? null,
-          brand: brand?.trim() || null,
-          model: model?.trim() || null,
+          brand: resolvedBrand,
+          model: resolvedModel,
+          brandModelId: resolvedBrandModelId,
           appearance: appearance?.trim() || null,
           quality: quality?.trim() || null,
           rbmPrice: rbmPrice ?? 0,
@@ -3751,12 +3820,20 @@ app.get('/api/reports/balances', async () => {
 
   const debtorCount = customers.filter((c) => c.balance > 0).length;
 
+  const totalPayable = customers
+    .filter((c) => c.balance < 0)
+    .reduce((sum, c) => sum + Math.abs(c.balance), 0);
+
+  const creditorCount = customers.filter((c) => c.balance < 0).length;
+
   return {
     success: true,
     data: {
       totalReceivable,
       riskyTotalBalance,
       debtorCount,
+      totalPayable,
+      creditorCount,
       customers,
     },
     message: 'Balance report retrieved successfully.',
@@ -3930,11 +4007,12 @@ app.get('/api/settings/brand-models', async () => {
   };
 });
 
-app.post<{ Body: { name: string; categoryId?: number } }>(
+app.post<{ Body: { name: string; categoryId?: number; kind?: 'MARKA' | 'MODEL' } }>(
   '/api/settings/brand-model',
   async (request, reply) => {
-    const { name, categoryId } = request.body;
+    const { name, categoryId, kind } = request.body;
     const trimmed = name?.trim();
+    const resolvedKind = kind === 'MARKA' ? 'MARKA' : 'MODEL';
 
     if (!trimmed) {
       return reply.status(400).send({
@@ -3948,6 +4026,7 @@ app.post<{ Body: { name: string; categoryId?: number } }>(
       const brandModel = await prisma.brandModel.create({
         data: {
           name: trimmed,
+          kind: resolvedKind,
           categoryId: categoryId ?? null,
         },
         include: { category: { select: { id: true, name: true } } },

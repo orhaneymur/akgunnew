@@ -23,7 +23,9 @@ export type PageId =
   | 'product-create'
   | 'barcode-label'
   | 'customer-list'
+  | 'customer-create'
   | 'customer-payments'
+  | 'customer-detail'
   | 'customer-balance'
   | 'report-sales'
   | 'report-analytics'
@@ -41,6 +43,7 @@ export type InvoiceFilter = 'ALL' | InvoiceType;
 export type NavigateOptions = {
   invoiceFilter?: InvoiceFilter;
   preOrderOnly?: boolean;
+  customerId?: number;
 };
 
 export type NavigateFn = (page: PageId, options?: NavigateOptions) => void;
@@ -102,8 +105,8 @@ export const menuCategories: MenuCategory[] = [
     icon: Users,
     items: [
       { id: 'customer-list', label: 'Müşteri Listesi' },
+      { id: 'customer-create', label: 'Yeni Müşteri Kartı' },
       { id: 'customer-payments', label: 'Tahsilat / Ödeme', badge: 'F2' },
-      { id: 'customer-balance', label: 'Müşteri Bakiye' },
     ],
   },
   {
@@ -116,6 +119,7 @@ export const menuCategories: MenuCategory[] = [
       { id: 'report-stock-value', label: 'Stok Değeri' },
       { id: 'report-cash-flow', label: 'Kasa Raporu' },
       { id: 'report-customer-statement', label: 'Müşteri Ekstre' },
+      { id: 'customer-balance', label: 'Müşteri Borç / Alacak' },
     ],
   },
   {
@@ -138,6 +142,7 @@ export const menuCategories: MenuCategory[] = [
 
 export function getCategoryForPage(pageId: PageId): MenuCategoryId | null {
   if (pageId === 'pre-orders') return 'sales';
+  if (pageId === 'customer-detail') return 'customer';
   for (const category of menuCategories) {
     if (category.items.some((item) => item.id === pageId)) {
       return category.id;
@@ -163,7 +168,9 @@ const VALID_PAGES = new Set<PageId>([
   'product-create',
   'barcode-label',
   'customer-list',
+  'customer-create',
   'customer-payments',
+  'customer-detail',
   'customer-balance',
   'report-sales',
   'report-analytics',
@@ -190,6 +197,11 @@ export function buildPageUrl(page: PageId, options?: NavigateOptions): string {
   } else {
     url.searchParams.delete('preOrder');
   }
+  if (options?.customerId && options.customerId > 0) {
+    url.searchParams.set('customerId', String(options.customerId));
+  } else {
+    url.searchParams.delete('customerId');
+  }
   return url.toString();
 }
 
@@ -197,6 +209,7 @@ export function parsePageFromUrl(): {
   page: PageId;
   invoiceFilter: InvoiceFilter;
   preOrderOnly: boolean;
+  customerId?: number;
 } {
   const params = new URLSearchParams(window.location.search);
   const rawPage = params.get('page') ?? 'dashboard';
@@ -207,5 +220,9 @@ export function parsePageFromUrl(): {
       ? filterRaw
       : 'ALL';
   const preOrderOnly = params.get('preOrder') === '1' || page === 'pre-orders';
-  return { page, invoiceFilter, preOrderOnly };
+  const customerIdRaw = params.get('customerId');
+  const parsedCustomerId = customerIdRaw ? Number(customerIdRaw) : NaN;
+  const customerId =
+    Number.isFinite(parsedCustomerId) && parsedCustomerId > 0 ? parsedCustomerId : undefined;
+  return { page, invoiceFilter, preOrderOnly, customerId };
 }

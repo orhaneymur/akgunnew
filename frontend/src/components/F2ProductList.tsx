@@ -10,6 +10,7 @@ type F2ProductListProps = {
   partySelected: boolean;
   priceMode: 'usd' | 'tl';
   accentClass?: string;
+  showCost?: boolean;
 };
 
 export default function F2ProductList({
@@ -20,6 +21,7 @@ export default function F2ProductList({
   partySelected,
   priceMode,
   accentClass = 'indigo',
+  showCost = false,
 }: F2ProductListProps) {
   const itemRefs = useRef<Map<number, HTMLLIElement>>(new Map());
 
@@ -64,6 +66,16 @@ export default function F2ProductList({
                   {priceMode === 'usd' && partyUsd != null
                     ? formatUsd(partyUsd)
                     : formatMoney(partyTl!)}
+                </p>
+              )}
+              {showCost && (
+                <p className="text-caption text-slate-500">
+                  Maliyet:{' '}
+                  {formatUsd(
+                    product.costUsd != null && product.costUsd > 0
+                      ? roundPrice(product.costUsd)
+                      : roundPrice(product.priceUsd)
+                  )}
                 </p>
               )}
             </div>

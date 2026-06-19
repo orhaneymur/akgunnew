@@ -6,6 +6,7 @@ import { API_BASE, ensureArray } from '../lib/api';
 type BrandModel = {
   id: number;
   name: string;
+  kind: 'MARKA' | 'MODEL';
   categoryId: number | null;
   category: { id: number; name: string } | null;
   _count?: { products: number };
@@ -23,6 +24,7 @@ export default function CategoryManager() {
   const [brandModels, setBrandModels] = useState<BrandModel[]>([]);
   const [categoryName, setCategoryName] = useState('');
   const [brandName, setBrandName] = useState('');
+  const [brandKind, setBrandKind] = useState<'MARKA' | 'MODEL'>('MARKA');
   const [brandCategoryId, setBrandCategoryId] = useState<number | ''>('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -69,13 +71,19 @@ export default function CategoryManager() {
   const addBrandModel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!brandName.trim()) return;
+    if (brandCategoryId === '') {
+      alert('Marka/model için kategori seçin.');
+      return;
+    }
     setSubmitting(true);
     try {
       await axios.post(`${API_BASE}/api/settings/brand-model`, {
         name: brandName.trim(),
-        categoryId: brandCategoryId !== '' ? Number(brandCategoryId) : undefined,
+        kind: brandKind,
+        categoryId: brandCategoryId,
       });
       setBrandName('');
+      setBrandKind('MARKA');
       setBrandCategoryId('');
       await loadData();
     } catch {
@@ -189,7 +197,15 @@ export default function CategoryManager() {
               placeholder="Marka veya model adı..."
               className="w-full rounded-xl border-slate-300 text-sm px-3 py-2 border focus:border-violet-500 focus:ring-violet-500"
             />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={brandKind}
+                onChange={(e) => setBrandKind(e.target.value as 'MARKA' | 'MODEL')}
+                className="rounded-xl border-slate-300 text-sm px-3 py-2 border focus:border-violet-500 focus:ring-violet-500"
+              >
+                <option value="MARKA">Marka</option>
+                <option value="MODEL">Model</option>
+              </select>
               <select
                 value={brandCategoryId}
                 onChange={(e) =>
@@ -199,7 +215,7 @@ export default function CategoryManager() {
                 }
                 className="flex-1 rounded-xl border-slate-300 text-sm px-3 py-2 border focus:border-violet-500 focus:ring-violet-500"
               >
-                <option value="">Kategori (opsiyonel)</option>
+                <option value="">Kategori seçin *</option>
                 {categories.map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {cat.name}
@@ -221,7 +237,10 @@ export default function CategoryManager() {
               <thead className="bg-slate-50/80">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
-                    Marka/Model
+                    Tür
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
+                    Ad
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
                     Kategori
@@ -234,6 +253,9 @@ export default function CategoryManager() {
               <tbody className="divide-y divide-slate-50">
                 {brandModels.map((brand) => (
                   <tr key={brand.id} className="hover:bg-slate-50/60">
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      {brand.kind === 'MARKA' ? 'Marka' : 'Model'}
+                    </td>
                     <td className="px-4 py-3 text-sm font-medium text-slate-900">
                       {brand.name}
                     </td>
@@ -247,7 +269,7 @@ export default function CategoryManager() {
                 ))}
                 {brandModels.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-400 text-sm">
                       Henüz marka/model yok.
                     </td>
                   </tr>

@@ -129,6 +129,48 @@ export async function importCustomersExcel(
   return { created, updated, skipped, errors };
 }
 
+const APPEARANCE_LABELS: Record<string, string> = {
+  CITALI: 'Çıtalı',
+  CITASIZ: 'Çıtasız',
+};
+
+const QUALITY_LABELS: Record<string, string> = {
+  A_KALITE: 'A Kalite',
+  A_PLUS: 'A Plus',
+  ORJINAL: 'Orjinal',
+  REVIZYON_ORJINAL: 'Revizyon Orjinal',
+  SERVIS_ORJINAL: 'Servis Orjinal',
+  OLED: 'OLED',
+};
+
+function appearanceLabel(value: string | null | undefined): string {
+  if (!value) return '';
+  return APPEARANCE_LABELS[value] ?? value;
+}
+
+function qualityLabel(value: string | null | undefined): string {
+  if (!value) return '';
+  return QUALITY_LABELS[value] ?? value;
+}
+
+function appearanceCodeFromLabel(value: string | null | undefined): string | null {
+  if (!value?.trim()) return null;
+  const trimmed = value.trim();
+  const byCode = APPEARANCE_LABELS[trimmed];
+  if (byCode) return trimmed;
+  const entry = Object.entries(APPEARANCE_LABELS).find(([, label]) => label === trimmed);
+  return entry?.[0] ?? trimmed;
+}
+
+function qualityCodeFromLabel(value: string | null | undefined): string | null {
+  if (!value?.trim()) return null;
+  const trimmed = value.trim();
+  const byCode = QUALITY_LABELS[trimmed];
+  if (byCode) return trimmed;
+  const entry = Object.entries(QUALITY_LABELS).find(([, label]) => label === trimmed);
+  return entry?.[0] ?? trimmed;
+}
+
 type ProductExcelRow = {
   Id?: string | number;
   StokKodu?: string | number;
@@ -136,6 +178,8 @@ type ProductExcelRow = {
   Kategori?: string;
   Marka?: string;
   Model?: string;
+  Kalite?: string;
+  Renk?: string;
   Barkod?: string | number;
   AlisFiyati?: string | number;
   SatisFiyati?: string | number;
@@ -223,6 +267,10 @@ export async function exportProductsExcel(prisma: PrismaClient): Promise<Buffer>
       StokKodu: p.sku,
       StokAdi: p.name,
       Kategori: p.category?.name ?? '',
+      Marka: p.brand ?? '',
+      Model: p.model ?? '',
+      Kalite: qualityLabel(p.quality),
+      Renk: appearanceLabel(p.appearance),
       Barkod: p.barcode ?? '',
       AlisFiyati: p.costPrice,
       SatisFiyati: p.priceTl,
@@ -261,6 +309,10 @@ export async function importProductsExcel(
     sku: string;
     name: string;
     categoryName: string | null;
+    brand: string | null;
+    model: string | null;
+    quality: string | null;
+    appearance: string | null;
     costPrice: number;
     priceTl: number;
     priceUsd: number;
@@ -287,6 +339,10 @@ export async function importProductsExcel(
       sku,
       name,
       categoryName: optionalString(row.Kategori),
+      brand: optionalString(row.Marka),
+      model: optionalString(row.Model),
+      quality: qualityCodeFromLabel(optionalString(row.Kalite)),
+      appearance: appearanceCodeFromLabel(optionalString(row.Renk)),
       costPrice: asNumber(row.AlisFiyati, 0),
       priceTl: asNumber(row.SatisFiyati, 0),
       priceUsd:
@@ -319,6 +375,13 @@ export async function importProductsExcel(
     const categoryUpdate =
       item.categoryName != null ? { categoryId: categoryId ?? null } : {};
 
+    const detailUpdate = {
+      ...(item.brand != null ? { brand: item.brand || null } : {}),
+      ...(item.model != null ? { model: item.model || null } : {}),
+      ...(item.quality != null ? { quality: item.quality } : {}),
+      ...(item.appearance != null ? { appearance: item.appearance } : {}),
+    };
+
     const existingId = existingBySku.get(item.sku);
     const product = existingId
       ? await tx.product.update({
@@ -329,6 +392,7 @@ export async function importProductsExcel(
             priceTl: item.priceTl,
             priceUsd: item.priceUsd,
             ...categoryUpdate,
+            ...detailUpdate,
             ...(item.barcodeRaw ? { barcode: item.barcodeRaw } : { barcode: null }),
           },
         })
@@ -340,6 +404,7 @@ export async function importProductsExcel(
             priceTl: item.priceTl,
             priceUsd: item.priceUsd,
             ...categoryUpdate,
+            ...detailUpdate,
             ...(item.barcodeRaw ? { barcode: item.barcodeRaw } : {}),
           },
         });
