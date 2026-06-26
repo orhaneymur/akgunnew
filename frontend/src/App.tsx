@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import axios from 'axios';
 import { ArrowLeft, Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar';
-import { AUTH_STORAGE_KEY, AUTH_TOKEN_KEY } from './lib/api';
+import { API_BASE, AUTH_STORAGE_KEY, AUTH_TOKEN_KEY } from './lib/api';
 import {
   buildPageUrl,
   getCategoryForPage,
@@ -55,6 +56,8 @@ const initialOpenMenus = menuCategories.reduce(
   {} as Record<MenuCategoryId, boolean>
 );
 
+const FRONTEND_VERSION = 'v1.8.29';
+
 function App() {
   const initialUrl = parsePageFromUrl();
   const [isLoggedIn, setIsLoggedIn] = useState(
@@ -84,6 +87,7 @@ function App() {
     message: string;
   } | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [apiVersion, setApiVersion] = useState<string | null>(null);
 
   const applyRoute = useCallback(
     (parsed: ReturnType<typeof parsePageFromUrl>) => {
@@ -233,6 +237,26 @@ function App() {
     setIsLoggedIn(false);
     navigateTo('dashboard', { replace: true });
   }, [navigateTo]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    let cancelled = false;
+    void axios
+      .get<{ success: boolean; data: { version: string } }>(`${API_BASE}/api/version`)
+      .then((response) => {
+        if (!cancelled && response.data.success) {
+          setApiVersion(response.data.data.version);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setApiVersion(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
 
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -519,10 +543,18 @@ function App() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center sm:px-4 sm:py-2">
-                <span className="text-xs font-semibold text-emerald-700 sm:text-sm">
-                  Tutarlar: USD ($)
-                </span>
+              <div className="flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-center sm:px-3">
+                  <span className="text-[10px] font-medium text-slate-500 sm:text-xs">
+                    Arayüz {FRONTEND_VERSION}
+                    {apiVersion ? ` · API ${apiVersion}` : ''}
+                  </span>
+                </div>
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center sm:px-4 sm:py-2">
+                  <span className="text-xs font-semibold text-emerald-700 sm:text-sm">
+                    Tutarlar: USD ($)
+                  </span>
+                </div>
               </div>
             </div>
           </div>
