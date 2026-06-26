@@ -129,4 +129,18 @@ else
   echo "    = BrandModel unique zaten var"
 fi
 
+echo "==> Fatura soft delete (v1.8.28+)..."
+if ! column_exists "Invoice" "deletedAt"; then
+  mysql_exec "ALTER TABLE \`Invoice\` ADD COLUMN \`deletedAt\` DATETIME(3) NULL;"
+  echo "    + Invoice.deletedAt eklendi"
+else
+  echo "    = Invoice.deletedAt zaten var"
+fi
+if ! column_exists "InvoiceItem" "isChinaReturn"; then
+  mysql_exec "ALTER TABLE \`InvoiceItem\` ADD COLUMN \`isChinaReturn\` BOOLEAN NOT NULL DEFAULT false;"
+  echo "    + InvoiceItem.isChinaReturn eklendi"
+else
+  echo "    = InvoiceItem.isChinaReturn zaten var"
+fi
+
 echo "==> Migration tamam."

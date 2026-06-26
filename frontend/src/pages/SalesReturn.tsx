@@ -1,24 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, ArrowLeft, Copy, Package, RotateCcw, Save, Search, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Copy, Package, RotateCcw, Save, Search, Trash2, X } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
 import F2ProductList from '../components/F2ProductList';
 import { useF2ProductSearch, type F2Product } from '../hooks/useF2ProductSearch';
 import { useF2KeyboardNav } from '../hooks/useF2KeyboardNav';
 import { useHoldKeyReveal } from '../hooks/useHoldKeyReveal';
-import { useExchangeRates } from '../hooks/useExchangeRates';
 import { depotLabel } from '../lib/depots';
 import {
   API_BASE,
   ensureArray,
   formatDate,
-  formatMoney,
   formatUsd,
   roundPrice,
   type PaginatedListResponse,
 } from '../lib/api';
 import { recordF2ProductSelection } from '../lib/f2LastProduct';
+import { useTrashInvoice } from '../hooks/useTrashInvoice';
 import SalesCreate from './SalesCreate';
+
+const EXCHANGE_RATE = 1;
 
 type Branch = { id: number; name: string; type: string };
 type Safe = {
@@ -68,18 +69,34 @@ type ReturnCartLine = {
   manualOverride?: boolean;
 };
 
-function productCostUsd(product: F2Product, exchangeRate: number): number {
+function productCostUsd(product: F2Product): number {
   if (product.costUsd != null && product.costUsd > 0) {
     return roundPrice(product.costUsd);
   }
-  if (product.costPrice > 0 && exchangeRate > 0) {
-    return roundPrice(product.costPrice / exchangeRate);
+  if (product.costPrice > 0) {
+    return roundPrice(product.costPrice);
   }
   return roundPrice(product.priceUsd);
 }
 
 function newRowId(prefix: string, productId: number) {
   return `${prefix}-${productId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function pickCustomerFromSearch(query: string, results: Customer[]): Customer | null {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  const codePart = trimmed.split(/[—\-]/)[0].trim().toLocaleLowerCase('tr-TR');
+  const exactByCode = results.find(
+    (customer) => customer.code.toLocaleLowerCase('tr-TR') === codePart
+  );
+  if (exactByCode) return exactByCode;
+
+  const lower = trimmed.toLocaleLowerCase('tr-TR');
+  return (
+    results.find((customer) => customer.name.toLocaleLowerCase('tr-TR') === lower) ?? null
+  );
 }
 
 type WarningState = {
@@ -119,10 +136,15 @@ export default function SalesReturn({
   const isEditMode = editInvoiceId != null && editInvoiceId > 0;
   const [branches, setBranches] = useState<Branch[]>([]);
   const [safes, setSafes] = useState<Safe[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [cart, setCart] = useState<ReturnCartLine[]>([]);
 
-  const [selectedCustomer, setSelectedCustomer] = useState<number | ''>('');
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+  const customerDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const customerSearchRef = useRef<HTMLInputElement>(null);
   const [selectedBranch, setSelectedBranch] = useState<number | ''>('');
   const [selectedSafe, setSelectedSafe] = useState<number | ''>('');
 
@@ -140,17 +162,15 @@ export default function SalesReturn({
   const [editInvoiceDate, setEditInvoiceDate] = useState('');
   const [editCustomerLabel, setEditCustomerLabel] = useState('');
   const [editCustomerId, setEditCustomerId] = useState<number | ''>('');
-  const [editExchangeRate, setEditExchangeRate] = useState(1);
 
-  const { rates } = useExchangeRates();
   const showCosts = useHoldKeyReveal('F8');
 
   const f2 = useF2ProductSearch({
     open: searchModal,
     f2Trigger,
     context: 'return',
-    partyId: selectedCustomer !== '' ? Number(selectedCustomer) : null,
-    exchangeRate: rates.usd,
+    partyId: selectedCustomer?.id ?? null,
+    exchangeRate: EXCHANGE_RATE,
   });
 
   const branchSafes = useMemo(
@@ -163,21 +183,13 @@ export default function SalesReturn({
 
   const activeLines = useMemo(() => cart.filter((row) => row.returnQty > 0), [cart]);
 
-  const totalTl = useMemo(
-    () => activeLines.reduce((sum, row) => sum + row.returnQty * row.unitPriceTl, 0),
+  const totalUsd = useMemo(
+    () =>
+      roundPrice(
+        activeLines.reduce((sum, row) => sum + row.returnQty * row.unitPriceTl, 0)
+      ),
     [activeLines]
   );
-
-  const totalUsd = useMemo(() => {
-    if (activeLines.length === 0) return 0;
-    const weighted = activeLines.reduce(
-      (sum, row) => sum + row.returnQty * row.unitPriceTl,
-      0
-    );
-    const avgRate =
-      activeLines.reduce((sum, row) => sum + row.exchangeRate, 0) / activeLines.length;
-    return avgRate > 0 ? roundPrice(weighted / avgRate) : 0;
-  }, [activeLines]);
 
   const chinaReturnCount = activeLines.filter((r) => r.isChinaReturn).length;
   const stockReturnCount = activeLines.length - chinaReturnCount;
@@ -187,22 +199,27 @@ export default function SalesReturn({
     [onNotify]
   );
 
+  const { trashInvoice, trashing } = useTrashInvoice(() => {
+    onDataChange?.();
+    onCancelEdit?.();
+  });
+
+  const handleTrashInvoice = useCallback(async () => {
+    if (!editInvoiceId || !displayInvoiceNo) return;
+    const ok = await trashInvoice(editInvoiceId, displayInvoiceNo);
+    if (ok) notify('success', 'Fiş silinen işlemlere taşındı.');
+  }, [editInvoiceId, displayInvoiceNo, trashInvoice, notify]);
+
   const closeInvoiceView = useCallback(() => {
     setViewingInvoiceId(null);
   }, []);
 
   const loadInit = useCallback(async () => {
     try {
-      const [initRes, customersRes] = await Promise.all([
-        axios.get<{
-          success: boolean;
-          data: { branches: Branch[]; safes: Safe[] };
-        }>(`${API_BASE}/api/sales/init`),
-        axios.get<PaginatedListResponse<Customer>>(
-          `${API_BASE}/api/customers`,
-          { params: { page: 1, limit: 500 } }
-        ),
-      ]);
+      const initRes = await axios.get<{
+        success: boolean;
+        data: { branches: Branch[]; safes: Safe[] };
+      }>(`${API_BASE}/api/sales/init`);
 
       if (initRes.data.success) {
         const branchList = ensureArray(initRes.data.data.branches);
@@ -216,9 +233,6 @@ export default function SalesReturn({
         }
       }
 
-      if (customersRes.data.success) {
-        setCustomers(ensureArray(customersRes.data.data));
-      }
     } catch {
       notify('error', 'Başlangıç verileri yüklenemedi.');
     }
@@ -266,18 +280,20 @@ export default function SalesReturn({
         setEditProcessedBy(data.processedBy ?? '');
         setEditNotes(data.orderNotes ?? '');
         setEditInvoiceDate(data.createdAt.slice(0, 10));
-        setEditExchangeRate(data.exchangeRate > 0 ? data.exchangeRate : rates.usd);
         setRemovedItemIds([]);
         setEditLines(
-          data.items.map((line) => ({
-            rowId: `inv-${line.id}`,
-            invoiceItemId: line.id,
-            productId: line.product.id,
-            productName: line.product.name,
-            productSku: line.product.sku,
-            quantity: line.quantity,
-            unitPriceTl: roundPrice(line.unitPrice),
-          }))
+          data.items.map((line) => {
+            const rate = data.exchangeRate > 0 ? data.exchangeRate : 1;
+            return {
+              rowId: `inv-${line.id}`,
+              invoiceItemId: line.id,
+              productId: line.product.id,
+              productName: line.product.name,
+              productSku: line.product.sku,
+              quantity: line.quantity,
+              unitPriceTl: roundPrice(line.unitPrice / rate),
+            };
+          })
         );
       } catch {
         if (!cancelled) {
@@ -293,7 +309,7 @@ export default function SalesReturn({
     return () => {
       cancelled = true;
     };
-  }, [editInvoiceId, isEditMode, notify, onCancelEdit, rates.usd]);
+  }, [editInvoiceId, isEditMode, notify, onCancelEdit]);
 
   useEffect(() => {
     loadInit();
@@ -301,14 +317,51 @@ export default function SalesReturn({
 
   useEffect(() => {
     setCart([]);
-  }, [selectedCustomer]);
+  }, [selectedCustomer?.id]);
+
+  useEffect(() => {
+    const query = customerSearch.trim();
+    if (!customerDropdownOpen || query.length < 1) {
+      setCustomerResults([]);
+      return;
+    }
+
+    if (customerDebounceRef.current) clearTimeout(customerDebounceRef.current);
+
+    customerDebounceRef.current = setTimeout(async () => {
+      setCustomerSearchLoading(true);
+      try {
+        const response = await axios.get<PaginatedListResponse<Customer>>(
+          `${API_BASE}/api/customers`,
+          { params: { search: query, limit: 20, page: 1 } }
+        );
+        if (response.data.success) {
+          setCustomerResults(response.data.data);
+        }
+      } catch {
+        setCustomerResults([]);
+      } finally {
+        setCustomerSearchLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      if (customerDebounceRef.current) clearTimeout(customerDebounceRef.current);
+    };
+  }, [customerSearch, customerDropdownOpen]);
+
+  const selectCustomer = useCallback((customer: Customer) => {
+    setSelectedCustomer(customer);
+    setCustomerSearch(`${customer.code} — ${customer.name}`);
+    setCustomerDropdownOpen(false);
+  }, []);
 
   const closeSearchModal = useCallback(() => {
     setSearchModal(false);
   }, []);
 
   const openSearchModal = useCallback(() => {
-    if (selectedCustomer === '') {
+    if (!selectedCustomer) {
       notify('error', 'Önce müşteri seçin.');
       return;
     }
@@ -353,10 +406,10 @@ export default function SalesReturn({
 
   const addManualReturnLine = useCallback(
     (product: F2Product) => {
-      if (selectedCustomer !== '') {
-        recordF2ProductSelection('return', product.id, Number(selectedCustomer));
+      if (selectedCustomer) {
+        recordF2ProductSelection('return', product.id, selectedCustomer.id);
       }
-      const unitPriceTl = roundPrice(product.priceUsd * rates.usd);
+      const unitPriceTl = roundPrice(product.priceUsd);
       setCart((prev) => [
         ...prev,
         {
@@ -368,9 +421,9 @@ export default function SalesReturn({
           invoiceId: 0,
           invoiceNo: '—',
           unitPriceTl: unitPriceTl > 0 ? unitPriceTl : 0,
-          exchangeRate: rates.usd,
+          exchangeRate: EXCHANGE_RATE,
           returnQty: 1,
-          costUsd: productCostUsd(product, rates.usd),
+          costUsd: productCostUsd(product),
           isChinaReturn: false,
           manualOverride: true,
         },
@@ -378,7 +431,7 @@ export default function SalesReturn({
       notify('success', `${product.name} sepete eklendi — fiyatı satırda düzenleyebilirsiniz.`);
       setWarning(null);
     },
-    [notify, rates.usd, selectedCustomer]
+    [notify, selectedCustomer]
   );
 
   const duplicateReturnLine = useCallback(
@@ -399,7 +452,7 @@ export default function SalesReturn({
 
   const pickProductForReturn = useCallback(
     async (product: F2Product) => {
-      if (selectedCustomer === '') {
+      if (!selectedCustomer) {
         notify('error', 'Önce müşteri seçin.');
         return;
       }
@@ -411,7 +464,7 @@ export default function SalesReturn({
           data: ReturnableLookup;
         }>(`${API_BASE}/api/sales/returnable-item`, {
           params: {
-            customerId: selectedCustomer,
+            customerId: selectedCustomer.id,
             productId: product.id,
           },
         });
@@ -426,7 +479,7 @@ export default function SalesReturn({
           return;
         }
 
-        recordF2ProductSelection('return', product.id, Number(selectedCustomer));
+        recordF2ProductSelection('return', product.id, selectedCustomer.id);
 
         setCart((prev) => [
           ...prev,
@@ -438,10 +491,12 @@ export default function SalesReturn({
             sourceInvoiceItemId: data.sourceInvoiceItemId,
             invoiceId: data.invoiceId,
             invoiceNo: data.invoiceNo,
-            unitPriceTl: data.unitPrice,
-            exchangeRate: data.exchangeRate,
+            unitPriceTl: roundPrice(
+              data.unitPrice / (data.exchangeRate > 0 ? data.exchangeRate : 1)
+            ),
+            exchangeRate: EXCHANGE_RATE,
             returnQty: 1,
-            costUsd: productCostUsd(product, data.exchangeRate),
+            costUsd: productCostUsd(product),
             isChinaReturn: false,
           },
         ]);
@@ -502,7 +557,7 @@ export default function SalesReturn({
         processedBy: editProcessedBy || null,
         orderNotes: editNotes || undefined,
         invoiceDate: editInvoiceDate,
-        exchangeRate: editExchangeRate,
+        exchangeRate: EXCHANGE_RATE,
         ...(removedItemIds.length > 0 ? { removeItemIds: removedItemIds } : {}),
         items: editLines.map((line) => ({
           id: line.invoiceItemId,
@@ -526,7 +581,13 @@ export default function SalesReturn({
   };
 
   const handleSubmit = async () => {
-    if (selectedCustomer === '' || selectedBranch === '' || selectedSafe === '') {
+    let customer = selectedCustomer;
+    if (!customer) {
+      customer = pickCustomerFromSearch(customerSearch, customerResults);
+      if (customer) selectCustomer(customer);
+    }
+
+    if (!customer || selectedBranch === '' || selectedSafe === '') {
       notify('error', 'Müşteri, şube ve kasa seçimlerini tamamlayın.');
       return;
     }
@@ -551,9 +612,9 @@ export default function SalesReturn({
       const createdNos: string[] = [];
 
       for (const [invoiceId, lines] of byInvoice) {
-        const exchangeRate = lines[0].exchangeRate || rates.usd;
+        const exchangeRate = EXCHANGE_RATE;
         const response = await axios.post(`${API_BASE}/api/sales/return`, {
-          customerId: Number(selectedCustomer),
+          customerId: customer.id,
           branchId: Number(selectedBranch),
           safeId: Number(selectedSafe),
           originalInvoiceId: invoiceId,
@@ -575,10 +636,10 @@ export default function SalesReturn({
 
       if (manualLines.length > 0) {
         const response = await axios.post(`${API_BASE}/api/sales/return-discretionary`, {
-          customerId: Number(selectedCustomer),
+          customerId: customer.id,
           branchId: Number(selectedBranch),
           safeId: Number(selectedSafe),
-          exchangeRate: rates.usd,
+          exchangeRate: EXCHANGE_RATE,
           note: 'Kayıt dışı iade',
           items: manualLines.map((row) => ({
             productId: row.productId,
@@ -666,23 +727,12 @@ export default function SalesReturn({
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
-          <div>
+          <div className="md:col-span-2">
             <label className="mb-1 block text-sm font-medium text-slate-700">İşlemi Yapan</label>
             <input
               type="text"
               value={editProcessedBy}
               onChange={(e) => setEditProcessedBy(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Döviz Kuru</label>
-            <input
-              type="number"
-              min="0.0001"
-              step="0.0001"
-              value={editExchangeRate}
-              onChange={(e) => setEditExchangeRate(Number(e.target.value))}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
@@ -713,7 +763,7 @@ export default function SalesReturn({
                     Adet
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                    Birim (₺)
+                    Birim ($)
                   </th>
                   <th className="w-12 px-4 py-3" />
                 </tr>
@@ -789,17 +839,28 @@ export default function SalesReturn({
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm font-semibold text-slate-700">
-            Toplam: {formatMoney(editTotalTl)}
+            Toplam: {formatUsd(editTotalTl)}
           </p>
-          <button
-            type="button"
-            onClick={handleEditSave}
-            disabled={submitting}
-            className="btn btn-lg btn-primary inline-flex items-center gap-2"
-          >
-            <Save className="h-5 w-5" />
-            {submitting ? 'Kaydediliyor...' : 'DEĞİŞİKLİKLERİ KAYDET'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleTrashInvoice()}
+              disabled={trashing || submitting}
+              className="btn inline-flex items-center gap-2 border-2 border-red-200 bg-red-50 font-bold text-red-700 hover:bg-red-100"
+            >
+              <Trash2 className="h-5 w-5" />
+              {trashing ? 'Siliniyor...' : 'Fişi Sil'}
+            </button>
+            <button
+              type="button"
+              onClick={handleEditSave}
+              disabled={submitting}
+              className="btn btn-lg btn-primary inline-flex items-center gap-2"
+            >
+              <Save className="h-5 w-5" />
+              {submitting ? 'Kaydediliyor...' : 'DEĞİŞİKLİKLERİ KAYDET'}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -839,24 +900,62 @@ export default function SalesReturn({
         <div className="space-y-4 xl:col-span-2">
           <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div>
+              <div className="relative">
                 <label className="mb-1 block text-sm font-medium text-slate-700">
                   Müşteri
                 </label>
-                <select
-                  value={selectedCustomer}
-                  onChange={(e) =>
-                    setSelectedCustomer(e.target.value ? Number(e.target.value) : '')
-                  }
+                <input
+                  ref={customerSearchRef}
+                  type="text"
+                  value={customerSearch}
+                  onChange={(e) => {
+                    setCustomerSearch(e.target.value);
+                    setCustomerDropdownOpen(true);
+                    if (!e.target.value.trim()) setSelectedCustomer(null);
+                  }}
+                  onFocus={() => setCustomerDropdownOpen(true)}
+                  onBlur={() => {
+                    setTimeout(() => setCustomerDropdownOpen(false), 150);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const picked = pickCustomerFromSearch(customerSearch, customerResults);
+                      if (picked) selectCustomer(picked);
+                    }
+                  }}
+                  placeholder="Kod veya isim ile ara..."
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="">Müşteri seçin...</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} — {c.name}
-                    </option>
-                  ))}
-                </select>
+                  autoComplete="off"
+                />
+                {selectedCustomer && (
+                  <p className="mt-1 text-xs font-medium text-emerald-700">
+                    Seçili: {selectedCustomer.code} — {selectedCustomer.name}
+                  </p>
+                )}
+                {customerDropdownOpen && (customerSearch.trim() || customerResults.length > 0) && (
+                  <ul className="absolute z-20 left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg divide-y divide-slate-100">
+                    {customerSearchLoading && (
+                      <li className="px-3 py-2 text-sm text-slate-400">Aranıyor...</li>
+                    )}
+                    {!customerSearchLoading &&
+                      customerResults.map((customer) => (
+                        <li
+                          key={customer.id}
+                          onMouseDown={() => selectCustomer(customer)}
+                          className="cursor-pointer px-3 py-2 text-sm hover:bg-amber-50"
+                        >
+                          <span className="font-medium">{customer.code}</span>
+                          <span className="text-slate-500"> — {customer.name}</span>
+                        </li>
+                      ))}
+                    {!customerSearchLoading &&
+                      customerSearch.trim() &&
+                      customerResults.length === 0 && (
+                        <li className="px-3 py-2 text-sm text-slate-400">Sonuç yok</li>
+                      )}
+                  </ul>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
@@ -899,7 +998,7 @@ export default function SalesReturn({
             <button
               type="button"
               onClick={openSearchModal}
-              disabled={selectedCustomer === '' || pickingProduct}
+              disabled={!selectedCustomer || pickingProduct}
               className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 py-4 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-6"
             >
               <Search className="h-4 w-4" />
@@ -1094,7 +1193,6 @@ export default function SalesReturn({
         <aside className="sticky top-6 h-fit space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="font-semibold text-slate-800">İade Özeti</h2>
           <div className="page-title">{formatUsd(totalUsd)}</div>
-          <p className="text-xs text-slate-400">{formatMoney(totalTl)} TL</p>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between text-slate-600">
               <span>{depotLabel('MERKEZ_DEPO')}</span>
@@ -1186,8 +1284,7 @@ export default function SalesReturn({
             focusedIndex={f2.focusedIndex}
             onFocusIndex={f2.setFocusedIndex}
             onSelect={(product) => void pickProductForReturn(product)}
-            partySelected={selectedCustomer !== ''}
-            priceMode="tl"
+            partySelected={!!selectedCustomer}
             accentClass="amber"
             showCost={showCosts}
           />

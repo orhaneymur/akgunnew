@@ -6,7 +6,7 @@
 
 Dükkanın günlük operasyonları — satış, alış, stok, cari, kasa, iade ve raporlama — tek bir monorepo içinde birleştirilmiştir. Canlı veritabanı yedeği (`akgun_canli_data.sql`) repoda tutulur; **16.000+ ürün** ve **180+ müşteri** kaydı ile gerçek veri üzerinde çalışır.
 
-**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.8` · `since1907/akgun-frontend:v1.8.27`  
+**Canlı ortam:** K3s kümesi · Docker Hub `since1907/akgun-backend:v1.8.9` · `since1907/akgun-frontend:v1.8.28`  
 **Giriş:** `akgunteknik` / `123456`
 
 ---
@@ -40,7 +40,7 @@ Placeholder sayfalar kaldırıldı; sidebar yalnızca çalışan modülleri list
 | **Müşteri İşlemleri** | Müşteri Listesi, Tahsilat / Ödeme, Müşteri Bakiye |
 | **Raporlar** | İşletme Özeti, Kâr-Zarar, Stok Değeri, Kasa Raporu, Müşteri Ekstre |
 | **Tanımlar** | Ürün Tanımları, Kasa Tanımları, Personel Tanımları |
-| **Faturalar** | Fatura Listesi (filtre: Tümü / Satış / Alış / İade) |
+| **Faturalar** | Fatura Listesi (filtre: Tümü / Satış / Alış / İade), **Silinen İşlemler** |
 
 Menü tanımları: `frontend/src/lib/navigation.ts` · URL: `?page=sales`, `?page=pre-orders` vb.
 
@@ -178,6 +178,13 @@ Satış İade ekranında artık **fatura seçimi yok**. Akış:
 - Alış ve iade faturaları bu ekrandan düzenlenemez (bilgi mesajı gösterilir)
 
 ### Fatura Listesi (genel)
+
+- Satış, alış ve iade faturaları listelenir; düzenleme ve **Fişi Sil** (çöp kutusu) ikonu
+- **Fişi Sil:** Fatura kalıcı silinmez — önce **Silinen İşlemler** ekranına taşınır; stok, cari ve kasa etkileri o anda geri alınır
+- **Silinen İşlemler:** Buradan **Kalıcı Sil** ile kayıt tamamen kaldırılır (geri alınamaz)
+- Bağlı iade kaydı olan satış faturası silinemez (önce iadeler silinmeli)
+
+### Fatura Listesi (detay)
 - Tek ekranda **Tümü / Satış / Alış / İade** filtresi
 - **Fatura Ara** paneli — müşteri adı/kodu ve ürün (stok kodu, barkod, ad) ile sunucu tarafı arama (v1.7.4)
 - Ürün araması geçmiş faturaların kalemlerinde arar; müşteri araması o cariye ait tüm faturaları listeler
@@ -327,6 +334,7 @@ http://localhost:5173
 | Müşteri Bakiye | `frontend/src/pages/CustomerBalances.tsx` |
 | Kâr-Zarar Raporu | `frontend/src/pages/ProfitReport.tsx` |
 | Fatura Listesi | `frontend/src/pages/Invoices.tsx` |
+| Silinen İşlemler | `frontend/src/pages/DeletedInvoices.tsx` |
 | Tanımlar | `CategoryManager`, `SafeManager`, `PersonnelManager` |
 | Menü tanımları | `frontend/src/lib/navigation.ts` |
 
@@ -400,6 +408,7 @@ Manifestler: `k8s/apps.yaml`, `k8s/mysql-deployment.yaml` — `kubectl apply -f 
 | v1.8.15 | Ana Sayfa butonu veriyi yeniler; satış iade — aynı ürün birden fazla satır, satır başına Çin iade tik |
 | v1.8.14 | UI ölçek %80 (yaklaşık %20 küçültme); tutarlı `btn` / `page-title` / `text-caption` sınıfları; sidebar px yazı boyutları düzeltildi |
 | v1.8.13 | Fatura düzenlemede tekrar F2 basınca sayfanın başa dönmesi / sepet sıfırlanması düzeltmesi |
+| v1.8.28 | İki aşamalı fiş silme — önce Silinen İşlemler, oradan kalıcı silme; stok/cari geri alma |
 ---
 
 ## Ingress / Domain (Rancher)

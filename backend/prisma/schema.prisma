@@ -156,6 +156,7 @@ model Invoice {
   branch          Branch        @relation(fields: [branchId], references: [id])
   user            User?         @relation(fields: [userId], references: [id])
   items           InvoiceItem[]
+  deletedAt       DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 }
@@ -186,6 +187,7 @@ model InvoiceItem {
   discountPercent     Float         @default(0)
   totalPrice          Float
   sourceInvoiceItemId Int?
+  isChinaReturn       Boolean       @default(false)
   sourceInvoiceItem   InvoiceItem?  @relation("ItemReturns", fields: [sourceInvoiceItemId], references: [id], onDelete: SetNull)
   returnedItems       InvoiceItem[] @relation("ItemReturns")
   invoice             Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)

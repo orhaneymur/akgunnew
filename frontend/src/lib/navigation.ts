@@ -36,6 +36,7 @@ export type PageId =
   | 'def-safes'
   | 'def-users'
   | 'invoices'
+  | 'deleted-invoices'
   | 'pre-orders';
 
 export type InvoiceFilter = 'ALL' | InvoiceType;
@@ -44,6 +45,9 @@ export type NavigateOptions = {
   invoiceFilter?: InvoiceFilter;
   preOrderOnly?: boolean;
   customerId?: number;
+  editInvoiceId?: number;
+  /** true ise geçmişe yeni kayıt eklenmez (popstate senkronu, çıkış vb.) */
+  replace?: boolean;
 };
 
 export type NavigateFn = (page: PageId, options?: NavigateOptions) => void;
@@ -136,7 +140,10 @@ export const menuCategories: MenuCategory[] = [
     id: 'invoices',
     label: 'Faturalar',
     icon: FileText,
-    items: [{ id: 'invoices', label: 'Fatura Listesi' }],
+    items: [
+      { id: 'invoices', label: 'Fatura Listesi' },
+      { id: 'deleted-invoices', label: 'Silinen İşlemler' },
+    ],
   },
 ];
 
@@ -181,6 +188,7 @@ const VALID_PAGES = new Set<PageId>([
   'def-safes',
   'def-users',
   'invoices',
+  'deleted-invoices',
   'pre-orders',
 ]);
 
@@ -202,6 +210,11 @@ export function buildPageUrl(page: PageId, options?: NavigateOptions): string {
   } else {
     url.searchParams.delete('customerId');
   }
+  if (options?.editInvoiceId && options.editInvoiceId > 0) {
+    url.searchParams.set('invoiceId', String(options.editInvoiceId));
+  } else {
+    url.searchParams.delete('invoiceId');
+  }
   return url.toString();
 }
 
@@ -210,6 +223,7 @@ export function parsePageFromUrl(): {
   invoiceFilter: InvoiceFilter;
   preOrderOnly: boolean;
   customerId?: number;
+  editInvoiceId?: number;
 } {
   const params = new URLSearchParams(window.location.search);
   const rawPage = params.get('page') ?? 'dashboard';
@@ -224,5 +238,21 @@ export function parsePageFromUrl(): {
   const parsedCustomerId = customerIdRaw ? Number(customerIdRaw) : NaN;
   const customerId =
     Number.isFinite(parsedCustomerId) && parsedCustomerId > 0 ? parsedCustomerId : undefined;
-  return { page, invoiceFilter, preOrderOnly, customerId };
+  const invoiceIdRaw = params.get('invoiceId');
+  const parsedInvoiceId = invoiceIdRaw ? Number(invoiceIdRaw) : NaN;
+  const editInvoiceId =
+    Number.isFinite(parsedInvoiceId) && parsedInvoiceId > 0 ? parsedInvoiceId : undefined;
+  return { page, invoiceFilter, preOrderOnly, customerId, editInvoiceId };
+}
+
+export function getPageLabel(page: PageId): string {
+  if (page === 'dashboard') return dashboardItem.label;
+  if (page === 'customer-detail') return 'Müşteri Kartı';
+  if (page === 'pre-orders') return 'Ön Siparişler';
+  if (page === 'deleted-invoices') return 'Silinen İşlemler';
+  for (const category of menuCategories) {
+    const item = category.items.find((entry) => entry.id === page);
+    if (item) return item.label;
+  }
+  return dashboardItem.label;
 }

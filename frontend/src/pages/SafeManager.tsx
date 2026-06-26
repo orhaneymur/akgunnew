@@ -27,7 +27,7 @@ export default function SafeManager() {
   const [form, setForm] = useState({
     branchId: '',
     name: '',
-    currency: 'TRY',
+    currency: 'USD',
     balance: '0',
   });
 
@@ -163,7 +163,7 @@ export default function SafeManager() {
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Örn: Ziraat Bankası TL"
+                placeholder="Örn: Kasa USD"
                 className="w-full rounded-xl border-slate-300 text-sm px-3 py-2 border"
                 required
               />
@@ -177,8 +177,8 @@ export default function SafeManager() {
                 onChange={(e) => setForm({ ...form, currency: e.target.value })}
                 className="w-full rounded-xl border-slate-300 text-sm px-3 py-2 border"
               >
-                <option value="TRY">TRY — Türk Lirası</option>
                 <option value="USD">USD — Amerikan Doları</option>
+                <option value="TRY">TRY — Türk Lirası (eski)</option>
                 <option value="EUR">EUR — Euro</option>
               </select>
             </div>

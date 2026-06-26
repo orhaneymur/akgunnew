@@ -16,11 +16,13 @@ import {
   balanceStyles,
   formatDate,
   formatMoney,
+  invoiceAmountUsd,
   invoiceTypeLabel,
   invoiceTypeStyles,
   type Customer,
 } from '../lib/api';
 import type { NavigateFn } from '../lib/navigation';
+import { useAppNavigationOptional } from '../context/AppNavigationContext';
 
 type CustomerRecord = Customer & {
   phone?: string | null;
@@ -39,6 +41,8 @@ type InvoiceRow = {
   type: string;
   isPreOrder?: boolean;
   totalAmountTl: number;
+  totalAmountUsd?: number;
+  exchangeRate?: number;
   paymentMethod: string;
   createdAt: string;
 };
@@ -62,6 +66,7 @@ type StatementLine = {
 
 type CustomerDetailProps = {
   customerId: number;
+  initialEditInvoiceId?: number;
   onNavigate: NavigateFn;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
@@ -99,17 +104,21 @@ function toEditForm(customer: CustomerRecord): EditForm {
 
 export default function CustomerDetail({
   customerId,
+  initialEditInvoiceId,
   onNavigate,
   onNotify,
   onDataChange,
 }: CustomerDetailProps) {
+  const navigation = useAppNavigationOptional();
   const [customer, setCustomer] = useState<CustomerRecord | null>(null);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [statementLines, setStatementLines] = useState<StatementLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(
+    initialEditInvoiceId ?? null
+  );
   const [showEditForm, setShowEditForm] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
@@ -118,6 +127,29 @@ export default function CustomerDetail({
     (type: 'success' | 'error', message: string) => onNotify?.(type, message),
     [onNotify]
   );
+
+  useEffect(() => {
+    setEditingInvoiceId(initialEditInvoiceId ?? null);
+  }, [initialEditInvoiceId]);
+
+  const openInvoiceEditor = useCallback(
+    (invoiceId: number) => {
+      setEditingInvoiceId(invoiceId);
+      navigation?.navigateTo('customer-detail', {
+        customerId,
+        editInvoiceId: invoiceId,
+      });
+    },
+    [customerId, navigation]
+  );
+
+  const closeInvoiceEditor = useCallback(() => {
+    if (navigation) {
+      navigation.goBack();
+    } else {
+      setEditingInvoiceId(null);
+    }
+  }, [navigation]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -214,9 +246,9 @@ export default function CustomerDetail({
     return (
       <SalesCreate
         editInvoiceId={editingInvoiceId}
-        onCancelEdit={() => setEditingInvoiceId(null)}
+        onCancelEdit={closeInvoiceEditor}
         onSaved={() => {
-          setEditingInvoiceId(null);
+          closeInvoiceEditor();
           void loadAll();
           onDataChange?.();
         }}
@@ -462,7 +494,7 @@ export default function CustomerDetail({
                     {inv.type === 'SATIS' ? (
                       <button
                         type="button"
-                        onClick={() => setEditingInvoiceId(inv.id)}
+                        onClick={() => openInvoiceEditor(inv.id)}
                         className="text-violet-700 hover:text-violet-900 hover:underline"
                       >
                         {inv.invoiceNo}
@@ -480,7 +512,7 @@ export default function CustomerDetail({
                   </td>
                   <td className="px-4 py-3 text-slate-600">{inv.paymentMethod}</td>
                   <td className="px-4 py-3 text-right font-semibold">
-                    {formatMoney(inv.totalAmountTl)}
+                    {formatMoney(invoiceAmountUsd(inv))}
                   </td>
                   <td className="px-4 py-3 text-right text-slate-500">
                     {formatDate(inv.createdAt)}
@@ -489,7 +521,7 @@ export default function CustomerDetail({
                     {inv.type === 'SATIS' && (
                       <button
                         type="button"
-                        onClick={() => setEditingInvoiceId(inv.id)}
+                        onClick={() => openInvoiceEditor(inv.id)}
                         className="rounded-lg p-1.5 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
                         title="Faturayı aç"
                       >

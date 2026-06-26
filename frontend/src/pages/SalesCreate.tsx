@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { ArrowLeft, CheckCircle, Printer, Save, Search, ShoppingCart, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Printer, Save, Search, ShoppingCart, Trash2, X } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
 import F2ProductList, {
   resolveSalesUnitPriceUsd,
@@ -11,8 +11,6 @@ import { useHoldKeyReveal } from '../hooks/useHoldKeyReveal';
 import { useCartGridKeyboardNav } from '../hooks/useCartGridKeyboardNav';
 import {
   API_BASE,
-  DEFAULT_USD,
-  fetchExchangeRates,
   ensureArray,
   formatMoney,
   formatUsd,
@@ -21,6 +19,7 @@ import {
   type PaginatedListResponse,
 } from '../lib/api';
 import { recordF2ProductSelection } from '../lib/f2LastProduct';
+import { useTrashInvoice } from '../hooks/useTrashInvoice';
 
 type Branch = {
   id: number;
@@ -95,12 +94,14 @@ function calcLineTotalUsd(
   return Math.round(base * (1 - item.discountPercent / 100) * 100) / 100;
 }
 
-function productCostUsd(product: Product, exchangeRate: number) {
+const EXCHANGE_RATE = 1;
+
+function productCostUsd(product: Product) {
   if (product.costUsd != null && product.costUsd > 0) {
     return roundPrice(product.costUsd);
   }
-  if (product.costPrice > 0 && exchangeRate > 0) {
-    return roundPrice(product.costPrice / exchangeRate);
+  if (product.costPrice > 0) {
+    return roundPrice(product.costPrice);
   }
   return roundPrice(product.priceUsd);
 }
@@ -164,7 +165,6 @@ export default function SalesCreate({
   );
   const [dueDate, setDueDate] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
-  const [exchangeRate, setExchangeRate] = useState(DEFAULT_USD);
   const [isPreOrder, setIsPreOrder] = useState(false);
   const [shouldPrint, setShouldPrint] = useState(false);
   const [processedBy, setProcessedBy] = useState('');
@@ -197,7 +197,7 @@ export default function SalesCreate({
     f2Trigger,
     context: 'sales',
     partyId: selectedCustomer?.id ?? null,
-    exchangeRate,
+    exchangeRate: EXCHANGE_RATE,
   });
 
   const storeBranch = useMemo(
@@ -228,11 +228,6 @@ export default function SalesCreate({
     [cart]
   );
 
-  const totalTl = useMemo(
-    () => Math.round(totalUsd * (exchangeRate > 0 ? exchangeRate : 1) * 100) / 100,
-    [totalUsd, exchangeRate]
-  );
-
   const receiptBalance = useMemo(() => {
     if (!selectedCustomer) return null;
     const isCari = paymentMethod === 'Cari';
@@ -243,15 +238,15 @@ export default function SalesCreate({
 
     if (isEditMode && isCari) {
       return {
-        before: roundPrice(selectedCustomer.balance - totalTl),
+        before: roundPrice(selectedCustomer.balance - totalUsd),
         after: selectedCustomer.balance,
       };
     }
 
     const before = selectedCustomer.balance;
-    const after = isCari ? roundPrice(before + totalTl) : before;
+    const after = isCari ? roundPrice(before + totalUsd) : before;
     return { before, after };
-  }, [selectedCustomer, paymentMethod, printBalance, isEditMode, totalTl]);
+  }, [selectedCustomer, paymentMethod, printBalance, isEditMode, totalUsd]);
 
   const notify = useCallback(
     (type: 'success' | 'error', message: string) => {
@@ -259,6 +254,17 @@ export default function SalesCreate({
     },
     [onNotify]
   );
+
+  const { trashInvoice, trashing } = useTrashInvoice(() => {
+    onDataChange?.();
+    onCancelEdit?.();
+  });
+
+  const handleTrashInvoice = useCallback(async () => {
+    if (!editInvoiceId || !displayInvoiceNo) return;
+    const ok = await trashInvoice(editInvoiceId, displayInvoiceNo);
+    if (ok) notify('success', 'Fiş silinen işlemlere taşındı.');
+  }, [editInvoiceId, displayInvoiceNo, trashInvoice, notify]);
 
   const loadInitData = useCallback(async () => {
     try {
@@ -303,10 +309,6 @@ export default function SalesCreate({
   useEffect(() => {
     loadInitData();
   }, [loadInitData]);
-
-  useEffect(() => {
-    fetchExchangeRates().then((r) => setExchangeRate(r.usd));
-  }, []);
 
   useEffect(() => {
     if (selectedBranch === '') return;
@@ -413,7 +415,6 @@ export default function SalesCreate({
 
         const rate = data.exchangeRate > 0 ? data.exchangeRate : 1;
         setDisplayInvoiceNo(data.invoiceNo);
-        setExchangeRate(rate);
         setSelectedCustomer(customer);
         setCustomerSearch(`${customer.code} — ${customer.name}`);
         setSelectedBranch(data.branch.id);
@@ -445,7 +446,7 @@ export default function SalesCreate({
             quantity: line.quantity,
             unitPriceUsd: roundPrice(line.unitPrice / rate),
             discountPercent: line.discountPercent ?? 0,
-            costUsd: productCostUsd(line.product, rate),
+            costUsd: productCostUsd(line.product),
           }))
         );
       } catch {
@@ -478,7 +479,7 @@ export default function SalesCreate({
                 params: {
                   search: item.product.sku,
                   customerId: String(selectedCustomer.id),
-                  exchangeRate: String(exchangeRate),
+                  exchangeRate: String(EXCHANGE_RATE),
                 },
               }
             );
@@ -486,12 +487,11 @@ export default function SalesCreate({
             const unitPriceUsd = match
               ? resolveSalesUnitPriceUsd(
                   match as F2Product,
-                  Boolean(selectedCustomer),
-                  exchangeRate
+                  Boolean(selectedCustomer)
                 )
               : item.unitPriceUsd;
             const costUsd = match
-              ? productCostUsd(match, exchangeRate)
+              ? productCostUsd(match)
               : item.costUsd;
             return {
               rowId: item.rowId,
@@ -549,13 +549,12 @@ export default function SalesCreate({
     (product: F2Product | Product) => {
       const unitPriceUsd = resolveSalesUnitPriceUsd(
         product as F2Product,
-        Boolean(selectedCustomer),
-        exchangeRate
+        Boolean(selectedCustomer)
       );
-      const costUsd = productCostUsd(product, exchangeRate);
+      const costUsd = productCostUsd(product);
       return { unitPriceUsd, costUsd };
     },
-    [selectedCustomer, exchangeRate]
+    [selectedCustomer]
   );
 
   const addProductToCart = useCallback(
@@ -701,8 +700,6 @@ export default function SalesCreate({
           return;
         }
 
-        const rate = exchangeRate > 0 ? exchangeRate : 1;
-
         await axios.put(`${API_BASE}/api/sales/invoices/${editInvoiceId}`, {
           customerId: customer.id,
           paymentMethod,
@@ -712,14 +709,13 @@ export default function SalesCreate({
           deliveryType,
           dueDate: dueDate || null,
           invoiceDate,
-          exchangeRate: Number(exchangeRate),
+          exchangeRate: EXCHANGE_RATE,
           isPreOrder,
           ...(removedItemIds.length > 0 ? { removeItemIds: removedItemIds } : {}),
           items: cart.map((item) => {
-            const unitPriceTl = roundPrice(item.unitPriceUsd * rate);
             const payload = {
               quantity: item.quantity,
-              unitPrice: unitPriceTl,
+              unitPrice: roundPrice(item.unitPriceUsd),
               discountPercent: item.discountPercent,
             };
             if (item.sourceInvoiceItemId) {
@@ -741,7 +737,7 @@ export default function SalesCreate({
         safeId,
         paymentMethod,
         paymentType,
-        exchangeRate: Number(exchangeRate),
+        exchangeRate: EXCHANGE_RATE,
         deliveryType,
         dueDate: dueDate || undefined,
         invoiceDate,
@@ -751,10 +747,7 @@ export default function SalesCreate({
         items: cart.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
-          unitPrice:
-            Math.round(
-              item.unitPriceUsd * (exchangeRate > 0 ? exchangeRate : 1) * 100
-            ) / 100,
+          unitPrice: roundPrice(item.unitPriceUsd),
           discountPercent: item.discountPercent,
         })),
       });
@@ -769,7 +762,7 @@ export default function SalesCreate({
           typeof response.data.data?.balanceAfter === 'number'
             ? response.data.data.balanceAfter
             : paymentMethod === 'Cari'
-              ? roundPrice(balanceBefore + totalTl)
+              ? roundPrice(balanceBefore + totalUsd)
               : balanceBefore;
 
         const showReceiptBalance =
@@ -791,11 +784,18 @@ export default function SalesCreate({
           }${response.data.data?.totalAmountTl != null ? ` · ${formatUsd(totalUsd)}` : ''}`
         );
 
-        if (shouldPrint) {
-          window.setTimeout(() => window.print(), 150);
+        const savedInvoiceNo =
+          typeof response.data.data?.invoiceNo === 'string'
+            ? response.data.data.invoiceNo
+            : '';
+        if (savedInvoiceNo) {
+          setDisplayInvoiceNo(savedInvoiceNo);
         }
 
-        window.setTimeout(() => {
+        let formResetDone = false;
+        const resetAfterSale = () => {
+          if (formResetDone) return;
+          formResetDone = true;
           setCart([]);
           setOrderNotes('');
           setDueDate('');
@@ -804,9 +804,27 @@ export default function SalesCreate({
           setPrintBalance(null);
           setSelectedCustomer(null);
           setCustomerSearch('');
+          setDisplayInvoiceNo('');
           onDataChange?.();
           void loadInitData();
-        }, shouldPrint ? 800 : 0);
+        };
+
+        if (shouldPrint) {
+          window.setTimeout(() => {
+            window.print();
+            const onAfterPrint = () => {
+              resetAfterSale();
+              window.removeEventListener('afterprint', onAfterPrint);
+            };
+            window.addEventListener('afterprint', onAfterPrint);
+            window.setTimeout(() => {
+              window.removeEventListener('afterprint', onAfterPrint);
+              resetAfterSale();
+            }, 30_000);
+          }, 150);
+        } else {
+          resetAfterSale();
+        }
       }
     } catch (error) {
       const message =
@@ -832,22 +850,31 @@ export default function SalesCreate({
 
   return (
     <div className="space-y-4 print:space-y-2">
-      {isEditMode && (
-        <div className="hidden print:block border-b border-slate-300 pb-3 mb-2 text-center text-slate-900">
-          <p className="text-lg font-bold">{displayInvoiceNo}</p>
-          {selectedCustomer && (
-            <p className="text-sm font-medium mt-1">
-              {selectedCustomer.code} — {selectedCustomer.name}
-            </p>
-          )}
-          <p className="text-xs text-slate-600 mt-1">
-            {invoiceDate}
-            {processedBy ? ` · ${processedBy}` : ''}
-            {paymentMethod ? ` · ${paymentMethod}` : ''}
-            {paymentType ? ` · ${paymentType}` : ''}
+      <div className="hidden print:block border-b border-slate-300 pb-3 mb-3 text-slate-900">
+        <p className="text-center text-lg font-bold">
+          {displayInvoiceNo || initData.nextInvoiceNo || 'Satış Fişi'}
+        </p>
+        {selectedCustomer && (
+          <p className="mt-1 text-center text-sm font-medium">
+            {selectedCustomer.code} — {selectedCustomer.name}
           </p>
-        </div>
-      )}
+        )}
+        <p className="mt-1 text-center text-xs text-slate-600">
+          {invoiceDate}
+          {processedBy ? ` · ${processedBy}` : ''}
+          {paymentMethod ? ` · ${paymentMethod}` : ''}
+          {paymentType ? ` · ${paymentType}` : ''}
+          {deliveryType ? ` · ${deliveryType}` : ''}
+        </p>
+        {orderNotes.trim() && (
+          <div className="mt-3 border-t border-slate-200 pt-2 text-sm">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Açıklama
+            </p>
+            <p className="whitespace-pre-wrap">{orderNotes.trim()}</p>
+          </div>
+        )}
+      </div>
 
       <div className="mb-2 flex items-center gap-3 print:hidden">
         {isEditMode && onCancelEdit && (
@@ -996,7 +1023,7 @@ export default function SalesCreate({
               </div>
               {selectedCustomer && paymentMethod === 'Cari' && cart.length > 0 && (
                 <p className="mt-1 text-xs text-indigo-600 font-medium">
-                  Satış sonrası tahmini: {formatMoney(selectedCustomer.balance + totalTl)}
+                  Satış sonrası tahmini: {formatMoney(selectedCustomer.balance + totalUsd)}
                 </p>
               )}
             </div>
@@ -1108,20 +1135,20 @@ export default function SalesCreate({
               Sepet: ←→↑↓ · Maliyet: F8 basılı tut
             </span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-100">
+          <div className="overflow-x-auto print:overflow-visible">
+            <table className="receipt-cart-table min-w-full divide-y divide-slate-200 text-xs sm:text-sm print:text-[9px] print:leading-tight">
+              <thead className="bg-slate-100 print:bg-white">
                 <tr>
-                  <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-600 uppercase">
+                  <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-600 uppercase print:hidden w-24">
                     Stok Kodu
                   </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-600 uppercase">
+                  <th className="receipt-col-name px-3 py-2.5 text-left text-xs font-bold text-slate-600 uppercase print:px-1.5 print:py-1 print:text-[8px] min-w-[11rem] sm:min-w-[14rem]">
                     Stok Adı
                   </th>
-                  <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-20">
+                  <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-20 print:hidden">
                     Ind.%
                   </th>
-                  <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-20">
+                  <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-20 print:px-1.5 print:py-1 print:text-[8px]">
                     Adet
                   </th>
                   {showCosts && (
@@ -1129,29 +1156,29 @@ export default function SalesCreate({
                       Maliyet ($)
                     </th>
                   )}
-                  <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-24">
+                  <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-24 print:px-1.5 print:py-1 print:text-[8px]">
                     Fiyat ($)
                   </th>
-                  <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-28">
+                  <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase w-28 print:px-1.5 print:py-1 print:text-[8px]">
                     Toplam
                   </th>
-                  <th className="px-3 py-2.5 w-10" />
+                  <th className="px-3 py-2.5 w-10 print:hidden" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {cart.map((item) => {
                   const lineTotal = calcLineTotalUsd(item);
                   return (
-                    <tr key={item.rowId} className="hover:bg-slate-50/80">
-                      <td className="px-3 py-2 font-mono text-xs text-slate-600">
+                    <tr key={item.rowId} className="hover:bg-slate-50/80 print:hover:bg-transparent">
+                      <td className="px-3 py-2 font-mono text-[11px] text-slate-600 sm:text-xs align-top print:hidden">
                         {item.product.sku}
                       </td>
-                      <td className="px-3 py-2">
-                        <p className="font-medium text-slate-900 truncate max-w-[8.75rem]">
+                      <td className="receipt-col-name px-3 py-2 align-top min-w-[11rem] max-w-[32rem] print:max-w-none print:px-1.5 print:py-1">
+                        <p className="receipt-product-name text-[11px] font-medium leading-snug text-slate-900 break-words sm:text-xs print:text-[9px] print:leading-tight">
                           {item.product.name}
                         </p>
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2 text-right print:hidden">
                         <input
                           ref={setCartInputRef(item.rowId, 'discountPercent')}
                           type="number"
@@ -1169,7 +1196,7 @@ export default function SalesCreate({
                           onKeyDown={(e) =>
                             onCartFieldKeyDown(e, item.rowId, 'discountPercent')
                           }
-                          className="w-16 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500"
+                          className="w-16 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500 print:w-auto print:min-w-0 print:p-0 print:text-[9px]"
                         />
                       </td>
                       <td className="px-3 py-2 text-right">
@@ -1187,7 +1214,7 @@ export default function SalesCreate({
                             )
                           }
                           onKeyDown={(e) => onCartFieldKeyDown(e, item.rowId, 'quantity')}
-                          className="w-16 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500"
+                          className="w-16 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500 print:w-auto print:min-w-0 print:p-0 print:text-[9px]"
                         />
                       </td>
                       {showCosts && (
@@ -1212,13 +1239,13 @@ export default function SalesCreate({
                           onKeyDown={(e) =>
                             onCartFieldKeyDown(e, item.rowId, 'unitPriceUsd')
                           }
-                          className="w-20 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500 tabular-nums"
+                          className="w-20 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500 tabular-nums print:w-auto print:min-w-0 print:p-0 print:text-[9px]"
                         />
                       </td>
                       <td className="px-3 py-2 text-right font-bold text-slate-900 tabular-nums">
                         {formatUsd(lineTotal)}
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2 text-right print:hidden">
                         <button
                           type="button"
                           onClick={() => removeCartItem(item.rowId)}
@@ -1228,7 +1255,7 @@ export default function SalesCreate({
                               ? 'İade kaydı olan satır silinemez'
                               : 'Satırı kaldır'
                           }
-                          className="text-red-500 hover:text-red-700 p-1 print:hidden disabled:cursor-not-allowed disabled:opacity-30"
+                          className="text-red-500 hover:text-red-700 p-1 disabled:cursor-not-allowed disabled:opacity-30"
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -1259,18 +1286,6 @@ export default function SalesCreate({
             Fatura Özeti
           </h2>
 
-          <div className="print:hidden">
-            <label className={labelClass}>Döviz Kuru (USD → TL)</label>
-            <input
-              type="number"
-              min="0.0001"
-              step="0.0001"
-              value={exchangeRate}
-              onChange={(e) => setExchangeRate(Number(e.target.value))}
-              className={`${inputClass} font-mono font-bold text-center text-lg`}
-            />
-          </div>
-
           <div className="text-center">
             <p className="text-xs text-slate-500 uppercase tracking-wide">
               Toplam Ürün Adedi
@@ -1286,18 +1301,6 @@ export default function SalesCreate({
             </p>
             <p className="text-3xl font-black text-red-600 tabular-nums">
               {formatUsd(totalUsd)}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-slate-100 p-3 text-center">
-            <p className="text-caption text-slate-500 uppercase tracking-wide font-semibold">
-              TL Karşılığı (referans)
-            </p>
-            <p className="text-lg font-bold text-slate-700 tabular-nums mt-1">
-              {formatMoney(totalTl)}
-            </p>
-            <p className="text-caption text-slate-400 mt-1">
-              {formatUsd(totalUsd)} × {exchangeRate.toFixed(4)}
             </p>
           </div>
 
@@ -1384,6 +1387,18 @@ export default function SalesCreate({
             </button>
           )}
 
+          {isEditMode && (
+            <button
+              type="button"
+              onClick={() => void handleTrashInvoice()}
+              disabled={trashing || submitting}
+              className="btn btn-block border-2 border-red-200 bg-red-50 font-bold text-red-700 hover:bg-red-100 print:hidden"
+            >
+              <Trash2 className="w-5 h-5" />
+              {trashing ? 'Siliniyor...' : 'Fişi Sil'}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleSubmit}
@@ -1426,7 +1441,6 @@ export default function SalesCreate({
             onFocusIndex={f2.setFocusedIndex}
             onSelect={addProductToCart}
             partySelected={Boolean(selectedCustomer)}
-            priceMode="usd"
             accentClass="indigo"
           />
         )}

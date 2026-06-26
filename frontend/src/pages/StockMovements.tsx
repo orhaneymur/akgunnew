@@ -9,6 +9,7 @@ import {
   ensureArray,
   formatDate,
   formatMoney,
+  invoiceAmountUsd,
   invoiceTypeLabel,
   type PaginatedListResponse,
 } from '../lib/api';
@@ -34,6 +35,7 @@ type MovementRow = {
   processedBy: string | null;
   exchangeRate: number;
   invoiceTotalTl: number;
+  invoiceTotalUsd?: number;
   customer: { id: number; code: string; name: string };
   branch: { id: number; name: string };
   safe: { id: number; name: string } | null;
@@ -232,10 +234,15 @@ export default function StockMovements() {
                               <Detail label="Kasa" value={row.safe?.name || '—'} />
                               <Detail label="Depo" value={depotLabel(row.depot)} />
                               <Detail
-                                label="Fatura toplamı"
-                                value={formatMoney(row.invoiceTotalTl)}
+                                label="Fatura toplamı ($)"
+                                value={formatMoney(
+                                  row.invoiceTotalUsd ??
+                                    invoiceAmountUsd({
+                                      totalAmountTl: row.invoiceTotalTl,
+                                      exchangeRate: row.exchangeRate,
+                                    })
+                                )}
                               />
-                              <Detail label="Kur" value={String(row.exchangeRate)} />
                               {row.product.barcode && (
                                 <Detail label="Barkod" value={row.product.barcode} />
                               )}

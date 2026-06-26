@@ -9,7 +9,7 @@ type StockValueRow = {
   name: string;
   quantity: number;
   costPrice: number;
-  priceTl: number;
+  priceUsd: number;
   stockValue: number;
   retailValue: number;
 };
@@ -72,7 +72,7 @@ export default function StockValueReport() {
           </div>
           <div>
             <h1 className="page-title">Stok Değeri Raporu</h1>
-            <p className="text-sm text-slate-500">MERKEZ_DEPO · adet × maliyet</p>
+            <p className="text-sm text-slate-500">MERKEZ_DEPO · adet × maliyet ($)</p>
           </div>
         </div>
         <button
@@ -91,13 +91,13 @@ export default function StockValueReport() {
           <p className="text-2xl font-bold">{data.totals.totalQuantity.toLocaleString('tr-TR')}</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-xs text-slate-500">Maliyet Değeri</p>
+          <p className="text-xs text-slate-500">Maliyet Değeri ($)</p>
           <p className="text-2xl font-bold text-emerald-700">
             {formatMoney(data.totals.totalCostValue)}
           </p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-xs text-slate-500">Perakende Değeri</p>
+          <p className="text-xs text-slate-500">Perakende Değeri ($)</p>
           <p className="text-2xl font-bold text-indigo-700">
             {formatMoney(data.totals.totalRetailValue)}
           </p>

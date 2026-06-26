@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
-import { Eye, FileText, Filter, Package, Search, User } from 'lucide-react';
+import { Eye, FileText, Filter, Package, Search, Trash2, User } from 'lucide-react';
 import {
   API_BASE,
   formatDate,
   formatMoney,
+  invoiceAmountUsd,
   invoiceTypeLabel,
   invoiceTypeStyles,
   type InvoiceType,
 } from '../lib/api';
 import ExcelActions from '../components/ExcelActions';
 import CustomerNameLink from '../components/CustomerNameLink';
+import { useInvoiceEditorFromUrl } from '../hooks/useInvoiceEditorFromUrl';
+import { useTrashInvoice } from '../hooks/useTrashInvoice';
+import type { PageId } from '../lib/navigation';
 import SalesCreate from './SalesCreate';
 import PurchaseCreate from './PurchaseCreate';
 import SalesReturn from './SalesReturn';
@@ -21,6 +25,8 @@ type Invoice = {
   type: string;
   isPreOrder?: boolean;
   totalAmountTl: number;
+  totalAmountUsd?: number;
+  exchangeRate?: number;
   createdAt: string;
   customer: { id: number; code: string; name: string };
   branch: { id: number; name: string };
@@ -29,10 +35,12 @@ type Invoice = {
 type FilterType = 'ALL' | InvoiceType;
 
 type InvoicesProps = {
+  pageId?: PageId;
   initialFilter?: FilterType;
   preOrderOnly?: boolean;
   refreshKey?: number;
   f2Trigger?: number;
+  initialEditInvoiceId?: number;
   title?: string;
   description?: string;
   onNotify?: (type: 'success' | 'error', message: string) => void;
@@ -41,10 +49,12 @@ type InvoicesProps = {
 };
 
 export default function Invoices({
+  pageId = 'invoices',
   initialFilter = 'ALL',
   preOrderOnly = false,
   refreshKey = 0,
   f2Trigger = 0,
+  initialEditInvoiceId,
   title = 'Fatura Listesi',
   description = 'Satış, alış ve iade faturaları — görüntüle ve düzenle',
   onNotify,
@@ -58,10 +68,17 @@ export default function Invoices({
   const [appliedCustomerSearch, setAppliedCustomerSearch] = useState('');
   const [appliedProductSearch, setAppliedProductSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [editingInvoice, setEditingInvoice] = useState<{
-    id: number;
-    type: string;
-  } | null>(null);
+
+  const routeOptions = {
+    invoiceFilter: filter,
+    preOrderOnly,
+  };
+
+  const { editingInvoice, openEditor, closeEditor } = useInvoiceEditorFromUrl(
+    pageId,
+    routeOptions,
+    initialEditInvoiceId
+  );
 
   const notify = useCallback(
     (type: 'success' | 'error', message: string) => onNotify?.(type, message),
@@ -98,6 +115,8 @@ export default function Invoices({
     }
   }, [filter, preOrderOnly, appliedCustomerSearch, appliedProductSearch, notify, refreshKey]);
 
+  const { trashInvoice, trashing } = useTrashInvoice(onDataChange);
+
   useEffect(() => {
     setFilter(initialFilter);
   }, [initialFilter]);
@@ -120,23 +139,33 @@ export default function Invoices({
 
   const hasActiveSearch = Boolean(appliedCustomerSearch.trim() || appliedProductSearch.trim());
 
-  const openEditor = useCallback((inv: Invoice) => {
-    if (!['SATIS', 'ALIS', 'IADE'].includes(inv.type)) {
-      notify('error', 'Bu fatura türü düzenlenemez.');
-      return;
-    }
-    setEditingInvoice({ id: inv.id, type: inv.type });
-  }, [notify]);
-
-  const closeEditor = useCallback(() => {
-    setEditingInvoice(null);
-  }, []);
+  const tryOpenEditor = useCallback(
+    (inv: Invoice) => {
+      if (!['SATIS', 'ALIS', 'IADE'].includes(inv.type)) {
+        notify('error', 'Bu fatura türü düzenlenemez.');
+        return;
+      }
+      openEditor({ id: inv.id, type: inv.type });
+    },
+    [notify, openEditor]
+  );
 
   const handleSaved = useCallback(() => {
-    setEditingInvoice(null);
+    closeEditor();
     loadInvoices();
     onDataChange?.();
-  }, [loadInvoices, onDataChange]);
+  }, [closeEditor, loadInvoices, onDataChange]);
+
+  const handleTrash = useCallback(
+    async (inv: Invoice) => {
+      const ok = await trashInvoice(inv.id, inv.invoiceNo);
+      if (ok) {
+        notify('success', `${inv.invoiceNo} silinen işlemlere taşındı.`);
+        await loadInvoices();
+      }
+    },
+    [notify, trashInvoice, loadInvoices]
+  );
 
   const filters: { value: FilterType; label: string }[] = [
     { value: 'ALL', label: 'Tümü' },
@@ -304,12 +333,14 @@ export default function Invoices({
                   Şube
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                  Tutar (TL)
+                  Tutar ($)
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                   Tarih
                 </th>
-                <th className="w-12 px-4 py-3" />
+                <th className="w-24 px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                  İşlem
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -335,7 +366,7 @@ export default function Invoices({
                     <td className="px-4 py-3 text-sm font-semibold text-slate-900">
                       <button
                         type="button"
-                        onClick={() => openEditor(inv)}
+                        onClick={() => tryOpenEditor(inv)}
                         className={`text-left hover:underline ${
                           inv.type === 'SATIS'
                             ? 'text-violet-700 hover:text-violet-900'
@@ -367,26 +398,37 @@ export default function Invoices({
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{inv.branch.name}</td>
                     <td className="px-4 py-3 text-right text-sm font-semibold">
-                      {formatMoney(inv.totalAmountTl)}
+                      {formatMoney(invoiceAmountUsd(inv))}
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-slate-500">
                       {formatDate(inv.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEditor(inv)}
-                        className={`rounded-lg p-1.5 text-slate-400 hover:bg-slate-50 ${
-                          inv.type === 'SATIS'
-                            ? 'hover:text-violet-600'
-                            : inv.type === 'ALIS'
-                              ? 'hover:text-rose-600'
-                              : 'hover:text-amber-600'
-                        }`}
-                        title="Düzenle"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => tryOpenEditor(inv)}
+                          className={`rounded-lg p-1.5 text-slate-400 hover:bg-slate-50 ${
+                            inv.type === 'SATIS'
+                              ? 'hover:text-violet-600'
+                              : inv.type === 'ALIS'
+                                ? 'hover:text-rose-600'
+                                : 'hover:text-amber-600'
+                          }`}
+                          title="Düzenle"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleTrash(inv)}
+                          disabled={trashing}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                          title="Fişi sil"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

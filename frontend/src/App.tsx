@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Menu } from 'lucide-react';
+import { ArrowLeft, Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar';
-import { AUTH_STORAGE_KEY, AUTH_TOKEN_KEY, formatMoney } from './lib/api';
-import { useExchangeRates } from './hooks/useExchangeRates';
+import { AUTH_STORAGE_KEY, AUTH_TOKEN_KEY } from './lib/api';
 import {
   buildPageUrl,
   getCategoryForPage,
+  getPageLabel,
   menuCategories,
   parsePageFromUrl,
   type InvoiceFilter,
@@ -16,6 +16,7 @@ import {
 import Dashboard from './pages/Dashboard';
 import SalesCreate from './pages/SalesCreate';
 import Invoices from './pages/Invoices';
+import DeletedInvoices from './pages/DeletedInvoices';
 import StockList from './pages/StockList';
 import BarcodePrint from './pages/BarcodePrint';
 import CustomerList from './pages/CustomerList';
@@ -63,6 +64,9 @@ function App() {
   const [activeCustomerId, setActiveCustomerId] = useState<number | undefined>(
     initialUrl.customerId
   );
+  const [editInvoiceId, setEditInvoiceId] = useState<number | undefined>(
+    initialUrl.editInvoiceId
+  );
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>(initialUrl.invoiceFilter);
   const [preOrderOnly, setPreOrderOnly] = useState(initialUrl.preOrderOnly);
   const [openMenus, setOpenMenus] =
@@ -79,10 +83,100 @@ function App() {
     type: 'success' | 'error';
     message: string;
   } | null>(null);
-  const [usdInput, setUsdInput] = useState('');
-  const [eurInput, setEurInput] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const { rates: exchangeRates } = useExchangeRates();
+
+  const applyRoute = useCallback(
+    (parsed: ReturnType<typeof parsePageFromUrl>) => {
+      setActivePage(parsed.page);
+      setActiveCustomerId(parsed.customerId);
+      setEditInvoiceId(parsed.editInvoiceId);
+      setMobileNavOpen(false);
+
+      if (parsed.page === 'invoices') {
+        setInvoiceFilter(parsed.invoiceFilter);
+        setPreOrderOnly(false);
+      } else if (parsed.page === 'pre-orders') {
+        setPreOrderOnly(true);
+        setInvoiceFilter('SATIS');
+      } else {
+        setPreOrderOnly(parsed.preOrderOnly);
+      }
+
+      const category = getCategoryForPage(
+        parsed.page === 'pre-orders' ? 'sales' : parsed.page
+      );
+      if (category) {
+        setOpenMenus((prev) => ({ ...prev, [category]: true }));
+      }
+    },
+    []
+  );
+
+  const navigateTo: NavigateFn = useCallback(
+    (page, options) => {
+      if (page === 'dashboard') {
+        setDashboardRefreshKey((prev) => prev + 1);
+      }
+
+      const mergedOptions: Parameters<typeof buildPageUrl>[1] = {
+        invoiceFilter: options?.invoiceFilter,
+        preOrderOnly: page === 'pre-orders' || options?.preOrderOnly,
+        customerId: options?.customerId,
+        editInvoiceId: options?.editInvoiceId,
+      };
+
+      if (page === 'invoices') {
+        mergedOptions.invoiceFilter = options?.invoiceFilter ?? 'ALL';
+        mergedOptions.preOrderOnly = false;
+      } else if (page === 'pre-orders') {
+        mergedOptions.preOrderOnly = true;
+      }
+
+      const nextUrl = buildPageUrl(page, mergedOptions);
+      const parsed = parsePageFromUrl();
+      const currentParams = new URL(window.location.href).searchParams;
+      const nextParams = new URL(nextUrl).searchParams;
+      const sameRoute =
+        currentParams.get('page') === nextParams.get('page') &&
+        (currentParams.get('filter') ?? '') === (nextParams.get('filter') ?? '') &&
+        (currentParams.get('preOrder') ?? '') === (nextParams.get('preOrder') ?? '') &&
+        (currentParams.get('customerId') ?? '') === (nextParams.get('customerId') ?? '') &&
+        (currentParams.get('invoiceId') ?? '') === (nextParams.get('invoiceId') ?? '');
+
+      applyRoute({
+        page,
+        invoiceFilter:
+          page === 'invoices'
+            ? (options?.invoiceFilter ?? 'ALL')
+            : page === 'pre-orders'
+              ? 'SATIS'
+              : parsed.invoiceFilter,
+        preOrderOnly: page === 'pre-orders' || (options?.preOrderOnly ?? false),
+        customerId: options?.customerId,
+        editInvoiceId: options?.editInvoiceId,
+      });
+
+      if (options?.replace || sameRoute) {
+        window.history.replaceState({ app: true }, '', nextUrl);
+      } else {
+        window.history.pushState({ app: true }, '', nextUrl);
+      }
+    },
+    [applyRoute]
+  );
+
+  const goBack = useCallback(() => {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    if (activePage !== 'dashboard' || editInvoiceId) {
+      navigateTo('dashboard', { replace: true });
+    }
+  }, [activePage, editInvoiceId, navigateTo]);
+
+  const showBackButton =
+    activePage !== 'dashboard' || editInvoiceId != null;
 
   const formattedDateLong = useMemo(
     () =>
@@ -105,22 +199,6 @@ function App() {
     []
   );
 
-  const usdTlAmount = useMemo(() => {
-    const trimmed = usdInput.trim();
-    if (!trimmed) return null;
-    const value = Number(trimmed.replace(',', '.'));
-    if (!Number.isFinite(value)) return null;
-    return value * exchangeRates.usd;
-  }, [usdInput, exchangeRates.usd]);
-
-  const eurTlAmount = useMemo(() => {
-    const trimmed = eurInput.trim();
-    if (!trimmed) return null;
-    const value = Number(trimmed.replace(',', '.'));
-    if (!Number.isFinite(value)) return null;
-    return value * exchangeRates.eur;
-  }, [eurInput, exchangeRates.eur]);
-
   const showNotification = useCallback(
     (type: 'success' | 'error', message: string) => {
       setNotification({ type, message });
@@ -129,49 +207,15 @@ function App() {
     []
   );
 
-  const navigateTo: NavigateFn = useCallback((page, options) => {
-    if (page === 'dashboard') {
-      setDashboardRefreshKey((prev) => prev + 1);
-    }
-
-    setActivePage(page);
-    setMobileNavOpen(false);
-    setActiveCustomerId(options?.customerId);
-
-    if (page === 'invoices') {
-      setInvoiceFilter(options?.invoiceFilter ?? 'ALL');
-      setPreOrderOnly(false);
-    } else if (page === 'pre-orders') {
-      setPreOrderOnly(true);
-      setInvoiceFilter('SATIS');
-    } else {
-      setPreOrderOnly(options?.preOrderOnly ?? false);
-    }
-
-    const category = getCategoryForPage(page === 'pre-orders' ? 'sales' : page);
-    if (category) {
-      setOpenMenus((prev) => ({ ...prev, [category]: true }));
-    }
-
-    window.history.replaceState(
-      null,
-      '',
-      buildPageUrl(page, {
-        invoiceFilter: options?.invoiceFilter,
-        preOrderOnly: page === 'pre-orders' || options?.preOrderOnly,
-        customerId: options?.customerId,
-      })
-    );
-  }, []);
-
   const navigationValue = useMemo(
     () => ({
       navigateTo,
       navigateToCustomer: (customerId: number) => {
         navigateTo('customer-detail', { customerId });
       },
+      goBack,
     }),
-    [navigateTo]
+    [navigateTo, goBack]
   );
 
   const toggleMenu = useCallback((id: MenuCategoryId) => {
@@ -187,8 +231,21 @@ function App() {
     localStorage.removeItem(AUTH_STORAGE_KEY);
     localStorage.removeItem(AUTH_TOKEN_KEY);
     setIsLoggedIn(false);
-    setActivePage('dashboard');
-  }, []);
+    navigateTo('dashboard', { replace: true });
+  }, [navigateTo]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const handlePopState = () => {
+      applyRoute(parsePageFromUrl());
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.history.replaceState({ app: true }, '', window.location.href);
+
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isLoggedIn, applyRoute]);
 
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -234,6 +291,7 @@ function App() {
           <Dashboard
             refreshKey={dashboardRefreshKey}
             f2Trigger={f2Trigger}
+            initialEditInvoiceId={editInvoiceId}
             onNavigate={navigateTo}
             onNotify={showNotification}
             onDataChange={handleDataChange}
@@ -270,9 +328,11 @@ function App() {
         return (
           <Invoices
             key={`${invoiceFilter}-${preOrderOnly}-${dashboardRefreshKey}`}
+            pageId="invoices"
             refreshKey={dashboardRefreshKey}
             initialFilter={invoiceFilter}
             preOrderOnly={preOrderOnly}
+            initialEditInvoiceId={editInvoiceId}
             f2Trigger={f2Trigger}
             title={preOrderOnly ? 'Ön Siparişler' : 'Fatura Listesi'}
             description={
@@ -285,12 +345,21 @@ function App() {
             onF2ContextActive={setEmbeddedSalesEditorOpen}
           />
         );
+      case 'deleted-invoices':
+        return (
+          <DeletedInvoices
+            onNotify={showNotification}
+            onDataChange={handleDataChange}
+          />
+        );
       case 'pre-orders':
         return (
           <Invoices
             key={`pre-orders-${dashboardRefreshKey}`}
+            pageId="pre-orders"
             refreshKey={dashboardRefreshKey}
             preOrderOnly
+            initialEditInvoiceId={editInvoiceId}
             f2Trigger={f2Trigger}
             initialFilter="SATIS"
             title="Ön Siparişler"
@@ -326,6 +395,7 @@ function App() {
         return (
           <CustomerDetail
             customerId={activeCustomerId}
+            initialEditInvoiceId={editInvoiceId}
             onNavigate={navigateTo}
             onNotify={showNotification}
             onDataChange={handleDataChange}
@@ -371,6 +441,7 @@ function App() {
     navigateTo,
     invoiceFilter,
     preOrderOnly,
+    editInvoiceId,
   ]);
 
   if (!isLoggedIn) {
@@ -403,6 +474,7 @@ function App() {
         activePage={activePage}
         openMenus={openMenus}
         mobileOpen={mobileNavOpen}
+        onNavigate={navigateTo}
         onToggleMenu={toggleMenu}
         onLogout={handleLogout}
         onMobileClose={() => setMobileNavOpen(false)}
@@ -412,7 +484,7 @@ function App() {
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm print:hidden">
           <div className="flex flex-col gap-3 px-3 py-2.5 sm:px-6 sm:py-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(true)}
@@ -421,80 +493,36 @@ function App() {
                 >
                   <Menu className="h-5 w-5" />
                 </button>
-                <p className="truncate text-xs text-slate-500 sm:hidden">
-                  {formattedDateShort}
-                </p>
-                <p className="hidden truncate text-sm text-slate-500 sm:block">
-                  {formattedDateLong}
-                </p>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-2">
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-center sm:px-4 sm:py-2">
-                  <span className="block text-caption font-medium text-emerald-600 sm:text-xs">
-                    USD
-                  </span>
-                  <span className="text-xs font-bold text-emerald-700 sm:text-sm">
-                    {exchangeRates.usd.toFixed(4)}
-                  </span>
-                  <span className="block text-caption text-emerald-500/80 truncate max-w-[3.15rem]">
-                    {exchangeRates.source}
-                  </span>
-                </div>
-                <div className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-center sm:px-4 sm:py-2">
-                  <span className="block text-caption font-medium text-blue-600 sm:text-xs">
-                    EUR
-                  </span>
-                  <span className="text-xs font-bold text-blue-700 sm:text-sm">
-                    {exchangeRates.eur.toFixed(4)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="hidden items-end gap-2 sm:flex">
-              <div className="flex min-w-[3.15rem] flex-col items-center">
-                <div className="relative w-full">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-emerald-600">
-                    $
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={usdInput}
-                    onChange={(e) => setUsdInput(e.target.value)}
-                    placeholder="..."
-                    aria-label="Dolar çevirici"
-                    className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-6 pr-2 text-sm font-medium text-slate-800 shadow-sm outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400"
-                  />
-                </div>
-                {usdTlAmount != null && (
-                  <span className="mt-1 whitespace-nowrap text-caption leading-none text-slate-400">
-                    {formatMoney(usdTlAmount)}
-                  </span>
+                {showBackButton && (
+                  <button
+                    type="button"
+                    onClick={goBack}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    title="Geri"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    <span className="hidden sm:inline">Geri</span>
+                  </button>
                 )}
+                <div className="min-w-0">
+                  {showBackButton && activePage !== 'dashboard' && (
+                    <p className="truncate text-sm font-semibold text-slate-800">
+                      {getPageLabel(activePage)}
+                    </p>
+                  )}
+                  <p className="truncate text-xs text-slate-500 sm:hidden">
+                    {formattedDateShort}
+                  </p>
+                  <p className="hidden truncate text-sm text-slate-500 sm:block">
+                    {formattedDateLong}
+                  </p>
+                </div>
               </div>
 
-              <div className="flex min-w-[3.15rem] flex-col items-center">
-                <div className="relative w-full">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-blue-600">
-                    €
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={eurInput}
-                    onChange={(e) => setEurInput(e.target.value)}
-                    placeholder="..."
-                    aria-label="Euro çevirici"
-                    className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-6 pr-2 text-sm font-medium text-slate-800 shadow-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-                  />
-                </div>
-                {eurTlAmount != null && (
-                  <span className="mt-1 whitespace-nowrap text-caption leading-none text-slate-400">
-                    {formatMoney(eurTlAmount)}
-                  </span>
-                )}
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center sm:px-4 sm:py-2">
+                <span className="text-xs font-semibold text-emerald-700 sm:text-sm">
+                  Tutarlar: USD ($)
+                </span>
               </div>
             </div>
           </div>

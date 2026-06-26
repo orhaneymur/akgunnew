@@ -19,10 +19,12 @@ import {
   ensureArray,
   formatDate,
   formatMoney,
+  invoiceAmountUsd,
   invoiceTypeLabel,
   invoiceTypeStyles,
 } from '../lib/api';
 import CustomerNameLink from '../components/CustomerNameLink';
+import { useInvoiceEditorFromUrl } from '../hooks/useInvoiceEditorFromUrl';
 import type { NavigateFn } from '../lib/navigation';
 import SalesCreate from './SalesCreate';
 import PurchaseCreate from './PurchaseCreate';
@@ -42,6 +44,8 @@ type RecentInvoice = {
   type: string;
   isPreOrder?: boolean;
   totalAmountTl: number;
+  totalAmountUsd?: number;
+  exchangeRate?: number;
   createdAt: string;
   customer: { id: number; code: string; name: string };
 };
@@ -49,6 +53,7 @@ type RecentInvoice = {
 type DashboardProps = {
   refreshKey?: number;
   f2Trigger?: number;
+  initialEditInvoiceId?: number;
   onNavigate?: NavigateFn;
   onNotify?: (type: 'success' | 'error', message: string) => void;
   onDataChange?: () => void;
@@ -74,6 +79,7 @@ type DashboardData = {
 export default function Dashboard({
   refreshKey = 0,
   f2Trigger = 0,
+  initialEditInvoiceId,
   onNavigate,
   onNotify,
   onDataChange,
@@ -82,16 +88,18 @@ export default function Dashboard({
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editingInvoice, setEditingInvoice] = useState<{
-    id: number;
-    type: string;
-  } | null>(null);
   const [editingPayment, setEditingPayment] = useState<RecentPayment | null>(null);
   const [editAmount, setEditAmount] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editType, setEditType] = useState<'GIRIS' | 'CIKIS'>('GIRIS');
   const [editSafeId, setEditSafeId] = useState<number | ''>('');
   const [editSubmitting, setEditSubmitting] = useState(false);
+
+  const { editingInvoice, openEditor, closeEditor, setEditingInvoice } = useInvoiceEditorFromUrl(
+    'dashboard',
+    undefined,
+    initialEditInvoiceId
+  );
 
   const notify = useCallback(
     (type: 'success' | 'error', message: string) => onNotify?.(type, message),
@@ -123,7 +131,7 @@ export default function Dashboard({
 
   useEffect(() => {
     setEditingInvoice(null);
-  }, [refreshKey]);
+  }, [refreshKey, setEditingInvoice]);
 
   useEffect(() => {
     if (editingInvoice === null) {
@@ -131,22 +139,21 @@ export default function Dashboard({
     }
   }, [refreshKey, editingInvoice, loadDashboard]);
 
-  const openEditor = useCallback((inv: RecentInvoice) => {
-    if (!['SATIS', 'ALIS', 'IADE'].includes(inv.type)) {
-      notify('error', 'Bu fatura türü düzenlenemez.');
-      return;
-    }
-    setEditingInvoice({ id: inv.id, type: inv.type });
-  }, [notify]);
-
-  const closeEditor = useCallback(() => {
-    setEditingInvoice(null);
-  }, []);
+  const tryOpenEditor = useCallback(
+    (inv: RecentInvoice) => {
+      if (!['SATIS', 'ALIS', 'IADE'].includes(inv.type)) {
+        notify('error', 'Bu fatura türü düzenlenemez.');
+        return;
+      }
+      openEditor({ id: inv.id, type: inv.type });
+    },
+    [notify, openEditor]
+  );
 
   const handleSaved = useCallback(() => {
-    setEditingInvoice(null);
+    closeEditor();
     onDataChange?.();
-  }, [onDataChange]);
+  }, [closeEditor, onDataChange]);
 
   const openPaymentEdit = useCallback((payment: RecentPayment) => {
     if (!payment.customer) {
@@ -354,7 +361,7 @@ export default function Dashboard({
                     {['SATIS', 'ALIS', 'IADE'].includes(inv.type) ? (
                       <button
                         type="button"
-                        onClick={() => openEditor(inv)}
+                        onClick={() => tryOpenEditor(inv)}
                         className="truncate text-sm font-medium text-violet-700 hover:text-violet-900 hover:underline"
                       >
                         {inv.invoiceNo}
@@ -378,12 +385,12 @@ export default function Dashboard({
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="text-sm font-semibold text-slate-800">
-                    {formatMoney(inv.totalAmountTl)}
+                    {formatMoney(invoiceAmountUsd(inv))}
                   </span>
                   {['SATIS', 'ALIS', 'IADE'].includes(inv.type) && (
                     <button
                       type="button"
-                      onClick={() => openEditor(inv)}
+                      onClick={() => tryOpenEditor(inv)}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
                       title="Düzenle"
                     >
@@ -537,7 +544,7 @@ export default function Dashboard({
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Tutar (TL)
+                  Tutar ($)
                 </label>
                 <input
                   type="number"

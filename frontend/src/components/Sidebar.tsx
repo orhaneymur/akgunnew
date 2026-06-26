@@ -1,11 +1,13 @@
 import { ChevronDown, Keyboard, LogOut, X, Zap } from 'lucide-react';
-import type { MenuCategoryId, PageId } from '../lib/navigation';
+import type { MouseEvent } from 'react';
+import type { MenuCategoryId, NavigateFn, PageId } from '../lib/navigation';
 import { buildPageUrl, dashboardItem, menuCategories } from '../lib/navigation';
 
 type SidebarProps = {
   activePage: PageId;
   openMenus: Record<MenuCategoryId, boolean>;
   mobileOpen?: boolean;
+  onNavigate: NavigateFn;
   onToggleMenu: (id: MenuCategoryId) => void;
   onLogout: () => void;
   onMobileClose?: () => void;
@@ -15,6 +17,7 @@ export default function Sidebar({
   activePage,
   openMenus,
   mobileOpen = false,
+  onNavigate,
   onToggleMenu,
   onLogout,
   onMobileClose,
@@ -34,12 +37,16 @@ export default function Sidebar({
     );
   };
 
-  const handleOpenInNewTab = (page: PageId) => {
-    window.open(
-      buildPageUrl(page, page === 'pre-orders' ? { preOrderOnly: true } : undefined),
-      '_blank',
-      'noopener,noreferrer'
-    );
+  const handleNavClick = (
+    event: MouseEvent<HTMLAnchorElement>,
+    page: PageId,
+    options?: Parameters<NavigateFn>[1]
+  ) => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.button === 1) {
+      return;
+    }
+    event.preventDefault();
+    onNavigate(page, options);
     onMobileClose?.();
   };
 
@@ -79,12 +86,7 @@ export default function Sidebar({
       <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-2 py-3">
         <a
           href={buildPageUrl('dashboard')}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => {
-            event.preventDefault();
-            handleOpenInNewTab('dashboard');
-          }}
+          onClick={(event) => handleNavClick(event, 'dashboard')}
           className={`mb-2 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all no-underline ${
             isItemActive('dashboard')
               ? 'bg-indigo-500/20 text-indigo-200 ring-1 ring-indigo-400/30'
@@ -137,16 +139,13 @@ export default function Sidebar({
                         item.id,
                         item.id === 'pre-orders' ? { preOrderOnly: true } : undefined
                       );
+                      const navOptions =
+                        item.id === 'pre-orders' ? { preOrderOnly: true } : undefined;
                       return (
                         <a
                           key={item.id}
                           href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            handleOpenInNewTab(item.id);
-                          }}
+                          onClick={(event) => handleNavClick(event, item.id, navOptions)}
                           className={`flex w-full items-center gap-2 rounded-lg py-2 pl-7 pr-3 text-sm transition-all no-underline ${
                             active
                               ? 'bg-indigo-600/90 font-medium text-white shadow-sm'
@@ -179,7 +178,7 @@ export default function Sidebar({
       <div className="space-y-3 border-t border-slate-800/80 px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center gap-2 px-2 text-xs text-slate-500">
           <Keyboard className="h-3.5 w-3.5" />
-          <span>F2 — Stok ara · menü yeni sekme</span>
+          <span>F2 — Stok ara · Ctrl+tık yeni sekme</span>
         </div>
         <button
           type="button"

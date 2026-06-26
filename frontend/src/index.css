@@ -224,4 +224,30 @@
     box-shadow: none !important;
     background: transparent !important;
   }
+
+  .receipt-cart-table {
+    width: 100% !important;
+    table-layout: fixed;
+    font-size: 9pt !important;
+  }
+
+  .receipt-cart-table th,
+  .receipt-cart-table td {
+    overflow: visible !important;
+    vertical-align: top;
+  }
+
+  .receipt-cart-table th.receipt-col-name,
+  .receipt-cart-table td.receipt-col-name {
+    width: 55% !important;
+  }
+
+  .receipt-product-name {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-width: none !important;
+  }
 }

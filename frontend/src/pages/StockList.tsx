@@ -14,7 +14,7 @@ import ExcelActions from '../components/ExcelActions';
 import {
   API_BASE,
   ensureArray,
-  formatMoney,
+  formatUsd,
   getTotalPages,
   LIST_PAGE_SIZE,
   type PaginatedListResponse,
@@ -39,7 +39,6 @@ export default function StockList({ onNotify }: StockListProps = {}) {
     name: '',
     barcode: '',
     costPrice: '',
-    priceTl: '',
     priceUsd: '',
   });
   const [stockForm, setStockForm] = useState<Array<{ branchId: number; branchName: string; quantity: string }>>(
@@ -113,7 +112,6 @@ export default function StockList({ onNotify }: StockListProps = {}) {
       name: product.name,
       barcode: product.barcode ?? '',
       costPrice: String(product.costPrice),
-      priceTl: String(product.priceTl),
       priceUsd: String(product.priceUsd),
     });
     setStockForm(
@@ -135,8 +133,8 @@ export default function StockList({ onNotify }: StockListProps = {}) {
         name: form.name.trim(),
         barcode: form.barcode.trim() || null,
         costPrice: Number(form.costPrice),
-        priceTl: Number(form.priceTl),
         priceUsd: Number(form.priceUsd),
+        priceTl: Number(form.priceUsd),
       });
 
       if (stockForm.length > 0) {
@@ -224,7 +222,7 @@ export default function StockList({ onNotify }: StockListProps = {}) {
                   Barkod
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">
-                  Fiyat
+                  Fiyat ($)
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">
                   Toplam Stok
@@ -279,8 +277,8 @@ export default function StockList({ onNotify }: StockListProps = {}) {
                         <td className="px-4 py-3 text-sm text-slate-500 font-mono">
                           {product.barcode ?? '—'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-right text-slate-700">
-                          {formatMoney(product.priceTl)}
+                        <td className="px-4 py-3 text-sm text-right text-slate-700 tabular-nums">
+                          {formatUsd(product.priceUsd)}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <span
@@ -424,7 +422,7 @@ export default function StockList({ onNotify }: StockListProps = {}) {
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-medium text-slate-600">Maliyet</label>
                   <input
@@ -439,20 +437,7 @@ export default function StockList({ onNotify }: StockListProps = {}) {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-slate-600">Satış TL</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.priceTl}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, priceTl: e.target.value }))
-                    }
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-600">Satış USD</label>
+                  <label className="text-xs font-medium text-slate-600">Satış ($)</label>
                   <input
                     type="number"
                     min="0"

@@ -29,6 +29,8 @@ type StoreItem = {
   sourceInvoiceItemId?: number;
 };
 
+const ACTIVE_INVOICE_FILTER = { deletedAt: null } as const;
+
 const app = Fastify({ logger: true });
 
 async function generateInvoiceNo(
@@ -333,6 +335,129 @@ async function applyInvoiceFinancialDelta(
   }
 }
 
+type InvoiceWithItems = {
+  id: number;
+  invoiceNo: string;
+  type: string;
+  customerId: number;
+  safeId: number;
+  isPreOrder: boolean;
+  paymentMethod: string;
+  totalAmountTl: number;
+  deletedAt: Date | null;
+  items: Array<{
+    id: number;
+    productId: number;
+    quantity: number;
+    isChinaReturn: boolean;
+  }>;
+};
+
+async function assertInvoiceCanTrash(
+  tx: Prisma.TransactionClient,
+  invoice: InvoiceWithItems
+) {
+  if (invoice.deletedAt) {
+    throw new Error('Bu fatura zaten silinmiş işlemler listesinde.');
+  }
+
+  for (const item of invoice.items) {
+    const linkedReturns = await tx.invoiceItem.count({
+      where: {
+        sourceInvoiceItemId: item.id,
+        invoice: ACTIVE_INVOICE_FILTER,
+      },
+    });
+    if (linkedReturns > 0) {
+      throw new Error(
+        'Bu faturadan yapılmış aktif iade kaydı var; önce iadeleri silin.'
+      );
+    }
+  }
+
+  if (invoice.type === 'SATIS') {
+    const linkedReturnInvoices = await tx.invoice.count({
+      where: {
+        originalInvoiceId: invoice.id,
+        ...ACTIVE_INVOICE_FILTER,
+      },
+    });
+    if (linkedReturnInvoices > 0) {
+      throw new Error(
+        'Bu faturaya bağlı aktif iade fişi var; önce iadeleri silin.'
+      );
+    }
+  }
+}
+
+async function reverseInvoiceEffects(
+  tx: Prisma.TransactionClient,
+  invoice: InvoiceWithItems
+) {
+  const merkezDepoId = await getDepotBranchId(tx, 'MERKEZ');
+  const cinIadeDepoId = await getDepotBranchId(tx, 'CIN_IADE');
+
+  for (const item of invoice.items) {
+    if (invoice.type === 'SATIS') {
+      await applyInvoiceStockDelta(
+        tx,
+        invoice.type,
+        invoice.isPreOrder,
+        item.productId,
+        merkezDepoId,
+        -item.quantity
+      );
+    } else if (invoice.type === 'ALIS') {
+      await applyInvoiceStockDelta(
+        tx,
+        invoice.type,
+        false,
+        item.productId,
+        merkezDepoId,
+        -item.quantity
+      );
+    } else if (invoice.type === 'IADE') {
+      const stockBranchId = item.isChinaReturn ? cinIadeDepoId : merkezDepoId;
+      await adjustStockQuantity(
+        tx,
+        item.productId,
+        stockBranchId,
+        -item.quantity
+      );
+    }
+  }
+
+  await applyInvoiceFinancialDelta(tx, {
+    invoiceType: invoice.type,
+    paymentMethod: invoice.paymentMethod,
+    customerId: invoice.customerId,
+    safeId: invoice.safeId,
+    amountDelta: -invoice.totalAmountTl,
+  });
+
+  if (invoice.type === 'SATIS' && isCashLikePayment(invoice.paymentMethod)) {
+    await tx.transaction.create({
+      data: {
+        safeId: invoice.safeId,
+        customerId: invoice.customerId,
+        type: 'CIKIS',
+        amount: invoice.totalAmountTl,
+        description: `${invoice.invoiceNo} fiş iptali`,
+      },
+    });
+  } else if (invoice.type === 'ALIS' && isCashLikePayment(invoice.paymentMethod)) {
+    await tx.transaction.create({
+      data: {
+        safeId: invoice.safeId,
+        customerId: invoice.customerId,
+        type: 'GIRIS',
+        amount: invoice.totalAmountTl,
+        description: `${invoice.invoiceNo} alış iptali`,
+      },
+    });
+  }
+}
+
 async function reconcileInvoiceFinancials(
   tx: Prisma.TransactionClient,
   before: {
@@ -373,7 +498,10 @@ async function getReturnedQtyMap(
 
   const grouped = await prisma.invoiceItem.groupBy({
     by: ['sourceInvoiceItemId'],
-    where: { sourceInvoiceItemId: { in: sourceItemIds } },
+    where: {
+      sourceInvoiceItemId: { in: sourceItemIds },
+      invoice: ACTIVE_INVOICE_FILTER,
+    },
     _sum: { quantity: true },
   });
 
@@ -416,7 +544,7 @@ async function findReturnableInvoiceItem(
   const items = await prisma.invoiceItem.findMany({
     where: {
       productId,
-      invoice: { customerId, type: 'SATIS' },
+      invoice: { customerId, type: 'SATIS', ...ACTIVE_INVOICE_FILTER },
     },
     orderBy: { invoice: { createdAt: 'desc' } },
     include: {
@@ -625,9 +753,9 @@ function mapProductSearchExtras(
   lastPartyPriceTl: number | null,
   rate: number
 ) {
-  const costUsd = toFloat(product.costPrice) / rate;
-  const priceUsd = toFloat(product.priceUsd);
-  const priceTl = toFloat(product.priceTl);
+  const costUsd = toFloat(product.costPrice);
+  const priceUsd =
+    toFloat(product.priceUsd) > 0 ? toFloat(product.priceUsd) : toFloat(product.priceTl);
   const lastPartyPriceUsd = toPartyPriceUsd(lastPartyPriceTl, priceUsd, rate);
   const lastSoldPrice =
     lastPartyPriceTl != null && lastPartyPriceUsd != null ? lastPartyPriceTl : null;
@@ -646,7 +774,7 @@ function mapProductSearchExtras(
     name: product.name,
     costPrice: toFloat(product.costPrice),
     costUsd,
-    priceTl,
+    priceTl: priceUsd,
     priceUsd,
     lastPartyPriceTl,
     lastPartyPriceUsd,
@@ -754,6 +882,19 @@ function buildProductSearchWhere(search: string): Prisma.ProductWhereInput {
 function toFloat(value: unknown, fallback = 0): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/** Fatura tutarı — öncelik USD; eski kayıtlar için TL/kur dönüşümü */
+function invoiceUsdAmount(invoice: {
+  totalAmountUsd?: number | null;
+  totalAmountTl?: number | null;
+  exchangeRate?: number | null;
+}): number {
+  const usd = toFloat(invoice.totalAmountUsd);
+  if (usd > 0) return roundMoney(usd);
+  const tl = toFloat(invoice.totalAmountTl);
+  const rate = toFloat(invoice.exchangeRate) > 0 ? toFloat(invoice.exchangeRate) : 1;
+  return roundMoney(tl / rate);
 }
 
 const DEFAULT_LIST_TAKE = 50;
@@ -952,10 +1093,13 @@ async function buildAnalyticsReport() {
       type: 'SATIS',
       userId: { not: null },
       createdAt: { gte: startOfYear },
+      ...ACTIVE_INVOICE_FILTER,
     },
     select: {
       userId: true,
+      totalAmountUsd: true,
       totalAmountTl: true,
+      exchangeRate: true,
       createdAt: true,
       user: { select: { id: true, name: true } },
     },
@@ -984,9 +1128,9 @@ async function buildAnalyticsReport() {
         yearly: 0,
       } satisfies TurnoverEntry);
 
-    entry.yearly += invoice.totalAmountTl;
-    if (invoice.createdAt >= startOfMonth) entry.monthly += invoice.totalAmountTl;
-    if (invoice.createdAt >= startOfDay) entry.daily += invoice.totalAmountTl;
+    entry.yearly += invoiceUsdAmount(invoice);
+    if (invoice.createdAt >= startOfMonth) entry.monthly += invoiceUsdAmount(invoice);
+    if (invoice.createdAt >= startOfDay) entry.daily += invoiceUsdAmount(invoice);
     turnoverMap.set(invoice.userId, entry);
   }
 
@@ -1003,16 +1147,16 @@ async function buildAnalyticsReport() {
   const [chartSales, chartPurchases, topProductRows, lowStockRows] =
     await Promise.all([
       prisma.invoice.findMany({
-        where: { type: 'SATIS', createdAt: { gte: sevenDaysAgo } },
-        select: { totalAmountTl: true, createdAt: true },
+        where: { type: 'SATIS', createdAt: { gte: sevenDaysAgo }, ...ACTIVE_INVOICE_FILTER },
+        select: { totalAmountUsd: true, totalAmountTl: true, exchangeRate: true, createdAt: true },
       }),
       prisma.invoice.findMany({
-        where: { type: 'SATIS', createdAt: { gte: sixMonthsAgo } },
-        select: { totalAmountTl: true, createdAt: true },
+        where: { type: 'SATIS', createdAt: { gte: sixMonthsAgo }, ...ACTIVE_INVOICE_FILTER },
+        select: { totalAmountUsd: true, totalAmountTl: true, exchangeRate: true, createdAt: true },
       }),
       prisma.invoiceItem.findMany({
         where: {
-          invoice: { type: 'SATIS', createdAt: { gte: thirtyDaysAgo } },
+          invoice: { type: 'SATIS', createdAt: { gte: thirtyDaysAgo }, ...ACTIVE_INVOICE_FILTER },
         },
         select: {
           quantity: true,
@@ -1043,7 +1187,7 @@ async function buildAnalyticsReport() {
   for (const inv of chartSales) {
     const key = inv.createdAt.toISOString().slice(0, 10);
     if (dailySalesMap.has(key)) {
-      dailySalesMap.set(key, (dailySalesMap.get(key) ?? 0) + inv.totalAmountTl);
+      dailySalesMap.set(key, (dailySalesMap.get(key) ?? 0) + invoiceUsdAmount(inv));
     }
   }
   const dailySales = Array.from(dailySalesMap.entries()).map(([date, total]) => ({
@@ -1066,7 +1210,7 @@ async function buildAnalyticsReport() {
     if (monthlySalesMap.has(key)) {
       monthlySalesMap.set(
         key,
-        (monthlySalesMap.get(key) ?? 0) + inv.totalAmountTl
+        (monthlySalesMap.get(key) ?? 0) + invoiceUsdAmount(inv)
       );
     }
   }
@@ -1086,9 +1230,12 @@ async function buildAnalyticsReport() {
     const name = row.product.name;
     productQtyMap.set(name, (productQtyMap.get(name) ?? 0) + row.quantity);
   }
-  const topProducts = Array.from(productQtyMap.entries())
+  const allProductsBySales = Array.from(productQtyMap.entries())
     .map(([name, quantity]) => ({ name, quantity }))
-    .sort((a, b) => b.quantity - a.quantity)
+    .sort((a, b) => b.quantity - a.quantity);
+  const topProducts = allProductsBySales.slice(0, 10);
+  const bottomProducts = [...allProductsBySales]
+    .sort((a, b) => a.quantity - b.quantity)
     .slice(0, 10);
 
   const lowStock = lowStockRows.map((row) => ({
@@ -1104,6 +1251,7 @@ async function buildAnalyticsReport() {
       dailySales,
       monthlySales,
       topProducts,
+      bottomProducts,
       staffComparison: staffTurnover.map((s) => ({
         name: s.userName,
         monthly: s.monthly,
@@ -1287,6 +1435,7 @@ app.get('/api/sales/dashboard', async () => {
     }),
     prisma.invoice.findMany({
       take: 5,
+      where: ACTIVE_INVOICE_FILTER,
       orderBy: { createdAt: 'desc' },
       include: {
         customer: { select: { id: true, code: true, name: true } },
@@ -1403,7 +1552,7 @@ app.get<{
   async (request) => {
     const { type, customerId, preOrder, customerSearch, productSearch } = request.query;
 
-    const where: Prisma.InvoiceWhereInput = {};
+    const where: Prisma.InvoiceWhereInput = { ...ACTIVE_INVOICE_FILTER };
     if (type && type !== 'ALL') {
       where.type = type;
     }
@@ -1459,6 +1608,125 @@ app.get<{
       data: invoices,
       message: 'Invoices retrieved successfully.',
     };
+  }
+);
+
+app.get('/api/sales/invoices/trash', async () => {
+  const invoices = await prisma.invoice.findMany({
+    where: { deletedAt: { not: null } },
+    orderBy: { deletedAt: 'desc' },
+    take: 1000,
+    include: {
+      customer: { select: { id: true, code: true, name: true } },
+      branch: { select: { id: true, name: true } },
+    },
+  });
+
+  return {
+    success: true,
+    data: invoices,
+    message: 'Deleted invoices retrieved successfully.',
+  };
+});
+
+app.post<{ Params: { id: string } }>(
+  '/api/sales/invoices/:id/trash',
+  async (request, reply) => {
+    const id = Number(request.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return reply.status(400).send({
+        success: false,
+        message: 'Geçersiz fatura id.',
+        errors: null,
+      });
+    }
+
+    try {
+      const trashed = await prisma.$transaction(async (tx) => {
+        const invoice = await tx.invoice.findUnique({
+          where: { id },
+          include: { items: true },
+        });
+
+        if (!invoice) {
+          throw new Error('Fatura bulunamadı.');
+        }
+
+        await assertInvoiceCanTrash(tx, invoice);
+        await reverseInvoiceEffects(tx, invoice);
+
+        return tx.invoice.update({
+          where: { id },
+          data: { deletedAt: new Date() },
+          include: {
+            customer: { select: { id: true, code: true, name: true } },
+            branch: { select: { id: true, name: true } },
+          },
+        });
+      });
+
+      return {
+        success: true,
+        data: trashed,
+        message: 'Fatura silinen işlemlere taşındı. Stok ve cari etkileri geri alındı.',
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Fatura silinemedi.';
+      return reply.status(500).send({
+        success: false,
+        message,
+        errors: null,
+      });
+    }
+  }
+);
+
+app.delete<{ Params: { id: string } }>(
+  '/api/sales/invoices/:id/permanent',
+  async (request, reply) => {
+    const id = Number(request.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return reply.status(400).send({
+        success: false,
+        message: 'Geçersiz fatura id.',
+        errors: null,
+      });
+    }
+
+    try {
+      const invoice = await prisma.invoice.findUnique({ where: { id } });
+      if (!invoice) {
+        return reply.status(404).send({
+          success: false,
+          message: 'Fatura bulunamadı.',
+          errors: null,
+        });
+      }
+      if (!invoice.deletedAt) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Kalıcı silme yalnızca silinen işlemler listesindeki faturalar için yapılabilir.',
+          errors: null,
+        });
+      }
+
+      await prisma.invoice.delete({ where: { id } });
+
+      return {
+        success: true,
+        data: { id },
+        message: 'Fatura kalıcı olarak silindi.',
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Fatura kalıcı silinemedi.';
+      return reply.status(500).send({
+        success: false,
+        message,
+        errors: null,
+      });
+    }
   }
 );
 
@@ -1566,6 +1834,9 @@ app.put<{
 
       if (!existing) {
         throw new Error('Fatura bulunamadı.');
+      }
+      if (existing.deletedAt) {
+        throw new Error('Silinmiş fatura düzenlenemez.');
       }
 
       const merkezDepoId = await getDepotBranchId(tx, 'MERKEZ');
@@ -2702,7 +2973,7 @@ app.get<{
   const rate =
     exchangeRateQuery && Number(exchangeRateQuery) > 0
       ? Number(exchangeRateQuery)
-      : 46.39;
+      : 1;
   const page = Math.max(1, Number(pageQuery) || 1);
   const limit = Math.min(Math.max(Number(limitQuery) || 100, 1), 200);
   const contextRaw = (contextQuery ?? 'sales').toLowerCase();
@@ -2995,6 +3266,9 @@ app.post<{
       if (!sourceInvoice || sourceInvoice.type !== 'SATIS') {
         throw new Error('Kaynak satış faturası bulunamadı.');
       }
+      if (sourceInvoice.deletedAt) {
+        throw new Error('Kaynak satış faturası silinmiş.');
+      }
 
       if (sourceInvoice.customerId !== customerId) {
         throw new Error('Seçilen fatura bu müşteriye ait değil.');
@@ -3064,6 +3338,7 @@ app.post<{
               unitPrice: item.unitPrice,
               totalPrice: item.quantity * item.unitPrice,
               sourceInvoiceItemId: item.sourceInvoiceItemId,
+              isChinaReturn: item.isChinaReturn ?? false,
             })),
           },
         },
@@ -3184,6 +3459,7 @@ app.post<{
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               totalPrice: item.quantity * item.unitPrice,
+              isChinaReturn: item.isChinaReturn ?? false,
             })),
           },
         },
@@ -3275,11 +3551,12 @@ app.post<{
   const resolvedSku =
     sku?.trim() ||
     `SK${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const resolvedPriceUsd = priceUsd != null && priceUsd >= 0 ? priceUsd : 0;
   const resolvedPriceTl =
-    priceTl != null && priceTl >= 0
-      ? priceTl
-      : priceUsd > 0
-        ? priceUsd * 46.37
+    resolvedPriceUsd > 0
+      ? resolvedPriceUsd
+      : priceTl != null && priceTl >= 0
+        ? priceTl
         : 0;
 
   try {
@@ -3313,7 +3590,7 @@ app.post<{
           name: name.trim(),
           costPrice,
           priceTl: resolvedPriceTl,
-          priceUsd,
+          priceUsd: resolvedPriceUsd,
           barcode: barcode?.trim() || null,
           categoryId: categoryId ?? null,
           brand: resolvedBrand,
@@ -3541,8 +3818,8 @@ app.put<{
           ? { barcode: barcode?.trim() || null }
           : {}),
         ...(costPrice !== undefined ? { costPrice } : {}),
-        ...(priceTl !== undefined ? { priceTl } : {}),
-        ...(priceUsd !== undefined ? { priceUsd } : {}),
+        ...(priceUsd !== undefined ? { priceUsd, priceTl: priceUsd } : {}),
+        ...(priceTl !== undefined && priceUsd === undefined ? { priceTl } : {}),
         ...(categoryId !== undefined ? { categoryId: categoryId ?? null } : {}),
         ...(brand !== undefined ? { brand: brand?.trim() || null } : {}),
         ...(model !== undefined ? { model: model?.trim() || null } : {}),
@@ -4296,6 +4573,7 @@ app.get<{ Querystring: { page?: string; limit?: string; search?: string; product
               processedBy: true,
               exchangeRate: true,
               totalAmountTl: true,
+              totalAmountUsd: true,
               customer: { select: { id: true, code: true, name: true } },
               branch: { select: { id: true, name: true } },
               safe: { select: { id: true, name: true } },
@@ -4343,6 +4621,7 @@ app.get<{ Querystring: { page?: string; limit?: string; search?: string; product
         processedBy: item.invoice.processedBy,
         exchangeRate: item.invoice.exchangeRate,
         invoiceTotalTl: item.invoice.totalAmountTl,
+        invoiceTotalUsd: invoiceUsdAmount(item.invoice),
         customer: item.invoice.customer,
         branch: item.invoice.branch,
         safe: item.invoice.safe,
@@ -4359,7 +4638,7 @@ app.get('/api/reports/stock-value', async (request, reply) => {
     where: { branch: { name: 'MERKEZ_DEPO' } },
     include: {
       product: {
-        select: { id: true, sku: true, name: true, costPrice: true, priceTl: true },
+        select: { id: true, sku: true, name: true, costPrice: true, priceUsd: true },
       },
     },
     orderBy: { product: { name: 'asc' } },
@@ -4371,9 +4650,9 @@ app.get('/api/reports/stock-value', async (request, reply) => {
     name: row.product.name,
     quantity: row.quantity,
     costPrice: row.product.costPrice,
-    priceTl: row.product.priceTl,
+    priceUsd: row.product.priceUsd,
     stockValue: row.quantity * row.product.costPrice,
-    retailValue: row.quantity * row.product.priceTl,
+    retailValue: row.quantity * row.product.priceUsd,
   }));
 
   const totals = rows.reduce(
@@ -4499,7 +4778,7 @@ app.get<{ Querystring: { customerId?: string } }>(
 
     const [invoices, payments] = await Promise.all([
       prisma.invoice.findMany({
-        where: { customerId },
+        where: { customerId, ...ACTIVE_INVOICE_FILTER },
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,

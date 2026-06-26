@@ -4,6 +4,7 @@ import type { NavigateFn } from '../lib/navigation';
 type AppNavigationValue = {
   navigateTo: NavigateFn;
   navigateToCustomer: (customerId: number) => void;
+  goBack: () => void;
 };
 
 export const AppNavigationContext = createContext<AppNavigationValue | null>(null);

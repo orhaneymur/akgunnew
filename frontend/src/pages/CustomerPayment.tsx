@@ -11,11 +11,107 @@ import {
   balanceStyles,
   ensureArray,
   formatMoney,
+  formatUsd,
   formatDate,
+  roundPrice,
   type Customer,
   type PaginatedListResponse,
   type Safe,
 } from '../lib/api';
+import { useExchangeRates } from '../hooks/useExchangeRates';
+
+type PaymentCurrency = 'USD' | 'TRY';
+
+function amountToStoredUsd(value: number, currency: PaymentCurrency, usdRate: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (currency === 'USD') return roundPrice(value);
+  const rate = usdRate > 0 ? usdRate : 1;
+  return roundPrice(value / rate);
+}
+
+function CurrencyToggle({
+  value,
+  onChange,
+}: {
+  value: PaymentCurrency;
+  onChange: (next: PaymentCurrency) => void;
+}) {
+  const base =
+    'px-3 py-2.5 text-sm font-semibold transition-colors min-w-[3rem]';
+  const active = 'bg-emerald-600 text-white';
+  const inactive = 'bg-white text-slate-600 hover:bg-slate-50';
+
+  return (
+    <div className="flex shrink-0 overflow-hidden rounded-xl border border-slate-300">
+      <button
+        type="button"
+        onClick={() => onChange('USD')}
+        className={`${base} border-r border-slate-300 ${value === 'USD' ? active : inactive}`}
+        aria-pressed={value === 'USD'}
+      >
+        $
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('TRY')}
+        className={`${base} ${value === 'TRY' ? active : inactive}`}
+        aria-pressed={value === 'TRY'}
+      >
+        ₺
+      </button>
+    </div>
+  );
+}
+
+function PaymentAmountField({
+  label,
+  amount,
+  onAmountChange,
+  currency,
+  onCurrencyChange,
+  usdRate,
+  inputClass,
+}: {
+  label: string;
+  amount: string;
+  onAmountChange: (value: string) => void;
+  currency: PaymentCurrency;
+  onCurrencyChange: (value: PaymentCurrency) => void;
+  usdRate: number;
+  inputClass: string;
+}) {
+  const parsed = Number(amount);
+  const storedUsd =
+    parsed > 0 ? amountToStoredUsd(parsed, currency, usdRate) : null;
+
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-slate-700">{label}</label>
+      <div className="flex gap-2">
+        <input
+          type="number"
+          min="0.01"
+          step="0.01"
+          value={amount}
+          onChange={(e) => onAmountChange(e.target.value)}
+          placeholder={currency === 'USD' ? '0,00 $' : '0,00 ₺'}
+          className={`${inputClass} min-w-0 flex-1`}
+        />
+        <CurrencyToggle value={currency} onChange={onCurrencyChange} />
+      </div>
+      {currency === 'TRY' && storedUsd != null && storedUsd > 0 && (
+        <p className="mt-1.5 text-caption text-slate-500">
+          Cari kaydı: ≈ {formatUsd(storedUsd)} · kur {usdRate.toFixed(4)} ₺/$
+        </p>
+      )}
+      {currency === 'USD' && storedUsd != null && storedUsd > 0 && (
+        <p className="mt-1.5 text-caption text-slate-500">
+          Cari kaydı: {formatUsd(storedUsd)}
+        </p>
+      )}
+    </div>
+  );
+}
 
 type CustomerPaymentProps = {
   f2Trigger?: number;
@@ -64,6 +160,7 @@ export default function CustomerPayment({
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
   const [selectedSafe, setSelectedSafe] = useState<number | ''>('');
   const [amount, setAmount] = useState('');
+  const [amountCurrency, setAmountCurrency] = useState<PaymentCurrency>('USD');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -72,6 +169,7 @@ export default function CustomerPayment({
   const [paymentsLoading, setPaymentsLoading] = useState(false);
   const [editingPayment, setEditingPayment] = useState<PaymentRow | null>(null);
   const [editAmount, setEditAmount] = useState('');
+  const [editAmountCurrency, setEditAmountCurrency] = useState<PaymentCurrency>('USD');
   const [editDescription, setEditDescription] = useState('');
   const [editType, setEditType] = useState<'GIRIS' | 'CIKIS'>('GIRIS');
   const [editSafeId, setEditSafeId] = useState<number | ''>('');
@@ -81,6 +179,7 @@ export default function CustomerPayment({
   const customerSearchRef = useRef<HTMLInputElement>(null);
 
   const f2 = useF2CustomerSearch({ open: f2Modal, f2Trigger });
+  const { rates } = useExchangeRates();
 
   const loadSafes = useCallback(async () => {
     setLoading(true);
@@ -248,13 +347,14 @@ export default function CustomerPayment({
     }
 
     const parsedAmount = Number(amount);
+    const storedAmount = amountToStoredUsd(parsedAmount, amountCurrency, rates.usd);
 
     if (!customer || selectedSafe === '') {
       onNotify?.('error', 'Lütfen müşteri ve kasa seçin.');
       return;
     }
 
-    if (!parsedAmount || parsedAmount <= 0) {
+    if (!storedAmount || storedAmount <= 0) {
       onNotify?.('error', 'Geçerli bir tutar girin.');
       return;
     }
@@ -264,15 +364,20 @@ export default function CustomerPayment({
       const response = await axios.post(`${API_BASE}/api/customers/payment`, {
         customerId: customer.id,
         safeId: Number(selectedSafe),
-        amount: parsedAmount,
+        amount: storedAmount,
         type,
         description: description.trim() || undefined,
       });
 
       if (response.data.success) {
         const label = type === 'GIRIS' ? 'Tahsilat' : 'Ödeme';
-        onNotify?.('success', `${label} başarıyla kaydedildi.`);
+        const amountLabel =
+          amountCurrency === 'TRY'
+            ? `${parsedAmount.toLocaleString('tr-TR')} ₺ (≈ ${formatUsd(storedAmount)})`
+            : formatUsd(storedAmount);
+        onNotify?.('success', `${label} kaydedildi: ${amountLabel}`);
         setAmount('');
+        setAmountCurrency('USD');
         setDescription('');
         await Promise.all([refreshSelectedCustomer(customer.id), loadSafes(), loadPayments()]);
         onDataChange?.();
@@ -291,6 +396,7 @@ export default function CustomerPayment({
   const openEditPayment = (payment: PaymentRow) => {
     setEditingPayment(payment);
     setEditAmount(String(payment.amount));
+    setEditAmountCurrency('USD');
     setEditDescription(payment.description);
     setEditType(payment.type);
     setEditSafeId(payment.safe.id);
@@ -303,7 +409,8 @@ export default function CustomerPayment({
   const handleSaveEdit = async () => {
     if (!editingPayment) return;
     const parsedAmount = Number(editAmount);
-    if (!parsedAmount || parsedAmount <= 0) {
+    const storedAmount = amountToStoredUsd(parsedAmount, editAmountCurrency, rates.usd);
+    if (!storedAmount || storedAmount <= 0) {
       onNotify?.('error', 'Geçerli bir tutar girin.');
       return;
     }
@@ -317,7 +424,7 @@ export default function CustomerPayment({
       const response = await axios.put(
         `${API_BASE}/api/customers/payment/${editingPayment.id}`,
         {
-          amount: parsedAmount,
+          amount: storedAmount,
           type: editType,
           description: editDescription.trim() || undefined,
           safeId: Number(editSafeId),
@@ -457,18 +564,15 @@ export default function CustomerPayment({
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Tutar (TL)</label>
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0,00"
-              className={inputClass}
-            />
-          </div>
+          <PaymentAmountField
+            label="Tutar"
+            amount={amount}
+            onAmountChange={setAmount}
+            currency={amountCurrency}
+            onCurrencyChange={setAmountCurrency}
+            usdRate={rates.usd}
+            inputClass={inputClass}
+          />
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Açıklama</label>
@@ -682,17 +786,15 @@ export default function CustomerPayment({
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="field-label">Tutar (TL)</label>
-                <input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={editAmount}
-                  onChange={(e) => setEditAmount(e.target.value)}
-                  className="field-input"
-                />
-              </div>
+              <PaymentAmountField
+                label="Tutar"
+                amount={editAmount}
+                onAmountChange={setEditAmount}
+                currency={editAmountCurrency}
+                onCurrencyChange={setEditAmountCurrency}
+                usdRate={rates.usd}
+                inputClass="field-input"
+              />
               <div>
                 <label className="field-label">Açıklama</label>
                 <textarea

@@ -6,6 +6,8 @@ type F2CustomerListProps = {
   focusedIndex: number;
   onFocusIndex: (index: number) => void;
   onSelect: (customer: Customer) => void;
+  selectedId?: number;
+  accentClass?: 'emerald' | 'blue';
 };
 
 export default function F2CustomerList({
@@ -13,7 +15,15 @@ export default function F2CustomerList({
   focusedIndex,
   onFocusIndex,
   onSelect,
+  selectedId,
+  accentClass = 'emerald',
 }: F2CustomerListProps) {
+  const focusRing =
+    accentClass === 'blue'
+      ? 'bg-blue-50 border-blue-600'
+      : 'bg-emerald-50 border-emerald-600';
+  const selectedRing =
+    accentClass === 'blue' ? 'bg-blue-50/60 border-blue-300' : 'bg-emerald-50/60 border-emerald-300';
   const itemRefs = useRef<Map<number, HTMLLIElement>>(new Map());
 
   useEffect(() => {
@@ -36,8 +46,10 @@ export default function F2CustomerList({
             onMouseEnter={() => onFocusIndex(index)}
             className={`px-3 py-2 cursor-pointer flex items-center justify-between gap-2 transition-colors border-l-2 ${
               focusedIndex === index
-                ? 'bg-emerald-50 border-emerald-600'
-                : 'hover:bg-slate-50 border-transparent'
+                ? focusRing
+                : selectedId === customer.id
+                  ? selectedRing
+                  : 'hover:bg-slate-50 border-transparent'
             }`}
           >
             <div className="min-w-0">

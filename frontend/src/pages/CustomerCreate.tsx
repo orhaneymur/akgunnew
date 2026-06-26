@@ -117,7 +117,7 @@ export default function CustomerCreate({ onNotify, onNavigate }: CustomerCreateP
             />
           </div>
           <div>
-            <label className={labelClass}>Kredi Limiti (₺)</label>
+            <label className={labelClass}>Kredi Limiti ($)</label>
             <input
               type="number"
               min="0"

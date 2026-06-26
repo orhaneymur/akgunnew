@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { FileInput, Save, Search, ShoppingCart, X, ArrowLeft } from 'lucide-react';
+import { FileInput, Save, Search, ShoppingCart, Trash2, X, ArrowLeft } from 'lucide-react';
 import ProductSearchPopover from '../components/ProductSearchPopover';
 import F2ProductList, {
   resolvePurchaseUnitPriceUsd,
 } from '../components/F2ProductList';
 import { useF2ProductSearch, type F2Product } from '../hooks/useF2ProductSearch';
 import { useF2KeyboardNav } from '../hooks/useF2KeyboardNav';
-import { useExchangeRates } from '../hooks/useExchangeRates';
 import {
   API_BASE,
   ensureArray,
@@ -18,6 +17,9 @@ import {
   type PaginatedListResponse,
 } from '../lib/api';
 import { recordF2ProductSelection } from '../lib/f2LastProduct';
+import { useTrashInvoice } from '../hooks/useTrashInvoice';
+
+const EXCHANGE_RATE = 1;
 
 type Branch = { id: number; name: string; type: string };
 type Safe = {
@@ -73,7 +75,6 @@ export default function PurchaseCreate({
   onSaved,
 }: PurchaseCreateProps) {
   const isEditMode = editInvoiceId != null && editInvoiceId > 0;
-  const { rates } = useExchangeRates();
   const [initData, setInitData] = useState<InitData>({
     branches: [],
     safes: [],
@@ -110,7 +111,7 @@ export default function PurchaseCreate({
     f2Trigger,
     context: 'purchase',
     partyId: selectedSupplier?.id ?? null,
-    exchangeRate: rates.usd,
+    exchangeRate: EXCHANGE_RATE,
   });
 
   const storeBranch = useMemo(
@@ -135,17 +136,23 @@ export default function PurchaseCreate({
     [cart]
   );
 
-  const totalTl = useMemo(
-    () => Math.round(totalUsd * (rates.usd > 0 ? rates.usd : 1) * 100) / 100,
-    [totalUsd, rates.usd]
-  );
-
   const notify = useCallback(
     (type: 'success' | 'error', message: string) => {
       onNotify?.(type, message);
     },
     [onNotify]
   );
+
+  const { trashInvoice, trashing } = useTrashInvoice(() => {
+    onDataChange?.();
+    onCancelEdit?.();
+  });
+
+  const handleTrashInvoice = useCallback(async () => {
+    if (!editInvoiceId || !displayInvoiceNo) return;
+    const ok = await trashInvoice(editInvoiceId, displayInvoiceNo);
+    if (ok) notify('success', 'Fiş silinen işlemlere taşındı.');
+  }, [editInvoiceId, displayInvoiceNo, trashInvoice, notify]);
 
   const loadInitData = useCallback(async () => {
     try {
@@ -228,7 +235,7 @@ export default function PurchaseCreate({
           return;
         }
 
-        const rate = data.exchangeRate > 0 ? data.exchangeRate : rates.usd;
+        const rate = data.exchangeRate > 0 ? data.exchangeRate : 1;
         setDisplayInvoiceNo(data.invoiceNo);
         setSelectedSupplier(data.customer);
         setSupplierSearch(`${data.customer.code} — ${data.customer.name}`);
@@ -270,7 +277,7 @@ export default function PurchaseCreate({
     return () => {
       cancelled = true;
     };
-  }, [editInvoiceId, isEditMode, notify, onCancelEdit, rates.usd]);
+  }, [editInvoiceId, isEditMode, notify, onCancelEdit]);
 
   useEffect(() => {
     loadInitData();
@@ -344,8 +351,7 @@ export default function PurchaseCreate({
     );
     const unitPriceUsd = resolvePurchaseUnitPriceUsd(
       product as F2Product,
-      Boolean(selectedSupplier),
-      rates.usd
+      Boolean(selectedSupplier)
     );
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
@@ -425,7 +431,6 @@ export default function PurchaseCreate({
     setSubmitting(true);
     try {
       if (isEditMode && editInvoiceId) {
-        const rate = rates.usd > 0 ? rates.usd : 1;
         await axios.put(`${API_BASE}/api/sales/invoices/${editInvoiceId}`, {
           customerId: selectedSupplier.id,
           paymentMethod,
@@ -434,13 +439,12 @@ export default function PurchaseCreate({
           orderNotes: orderNotes || undefined,
           dueDate: dueDate || null,
           invoiceDate,
-          exchangeRate: rate,
+          exchangeRate: EXCHANGE_RATE,
           ...(removedItemIds.length > 0 ? { removeItemIds: removedItemIds } : {}),
           items: cart.map((item) => {
-            const unitPriceTl = roundPrice(item.unitPriceUsd * rate);
             const payload = {
               quantity: item.quantity,
-              unitPrice: unitPriceTl,
+              unitPrice: roundPrice(item.unitPriceUsd),
               discountPercent: 0,
             };
             if (item.sourceInvoiceItemId) {
@@ -462,7 +466,7 @@ export default function PurchaseCreate({
         safeId,
         paymentMethod,
         paymentType,
-        exchangeRate: rates.usd,
+        exchangeRate: EXCHANGE_RATE,
         dueDate: dueDate || undefined,
         invoiceDate,
         processedBy: processedBy || undefined,
@@ -470,8 +474,7 @@ export default function PurchaseCreate({
         items: cart.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
-          unitPrice:
-            Math.round(item.unitPriceUsd * (rates.usd > 0 ? rates.usd : 1) * 100) / 100,
+          unitPrice: roundPrice(item.unitPriceUsd),
         })),
       });
 
@@ -848,10 +851,18 @@ export default function PurchaseCreate({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             <p className="text-lg font-bold text-rose-700">
               Toplam: {formatUsd(totalUsd)}
-              <span className="text-slate-400 font-normal ml-2">
-                ({formatMoney(totalTl)} TL)
-              </span>
             </p>
+            {isEditMode && (
+              <button
+                type="button"
+                onClick={() => void handleTrashInvoice()}
+                disabled={trashing || submitting}
+                className="btn border-2 border-red-200 bg-red-50 font-bold text-red-700 hover:bg-red-100 sm:w-auto"
+              >
+                <Trash2 className="w-5 h-5" />
+                {trashing ? 'Siliniyor...' : 'Fişi Sil'}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleSubmit}
@@ -889,7 +900,6 @@ export default function PurchaseCreate({
             onFocusIndex={f2.setFocusedIndex}
             onSelect={addProductToCart}
             partySelected={Boolean(selectedSupplier)}
-            priceMode="usd"
             accentClass="rose"
           />
         )}

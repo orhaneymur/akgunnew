@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { BarChart3, TrendingUp } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronUp, TrendingUp } from 'lucide-react';
 import {
   API_BASE,
   ensureArray,
   formatMoney,
 } from '../lib/api';
 import SimpleBarChart from '../components/SimpleBarChart';
+
+const COLLAPSED_ROWS = 6;
 
 type StaffTurnover = {
   userId: number;
@@ -16,16 +18,174 @@ type StaffTurnover = {
   yearly: number;
 };
 
+type ProductSaleRow = { name: string; quantity: number };
+
 type AnalyticsData = {
   staffTurnover: StaffTurnover[];
   charts: {
     dailySales: { label: string; total: number }[];
     monthlySales: { label: string; total: number }[];
-    topProducts: { name: string; quantity: number }[];
+    topProducts: ProductSaleRow[];
+    bottomProducts: ProductSaleRow[];
     staffComparison: { name: string; monthly: number }[];
   };
   lowStock: { id: number; sku: string; name: string; quantity: number }[];
 };
+
+function ExpandToggle({
+  expanded,
+  hiddenCount,
+  onToggle,
+}: {
+  expanded: boolean;
+  hiddenCount: number;
+  onToggle: () => void;
+}) {
+  if (hiddenCount <= 0) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+    >
+      {expanded ? (
+        <>
+          <ChevronUp className="h-4 w-4" />
+          Daha az göster
+        </>
+      ) : (
+        <>
+          <ChevronDown className="h-4 w-4" />
+          Daha fazla göster ({hiddenCount} kalem daha)
+        </>
+      )}
+    </button>
+  );
+}
+
+function ExpandableBarSection({
+  title,
+  items,
+  barColor,
+  valueFormatter,
+}: {
+  title: string;
+  items: { label: string; value: number }[];
+  barColor: string;
+  valueFormatter: (value: number) => string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? items : items.slice(0, COLLAPSED_ROWS);
+  const hiddenCount = Math.max(0, items.length - COLLAPSED_ROWS);
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="mb-4 font-semibold text-slate-800">{title}</h2>
+      <SimpleBarChart
+        items={visible.map((item) => ({
+          label: item.label,
+          value: item.value,
+          color: barColor,
+        }))}
+        valueFormatter={valueFormatter}
+      />
+      <ExpandToggle
+        expanded={expanded}
+        hiddenCount={hiddenCount}
+        onToggle={() => setExpanded((prev) => !prev)}
+      />
+    </section>
+  );
+}
+
+function ProductSalesSection({
+  topProducts,
+  bottomProducts,
+}: {
+  topProducts: ProductSaleRow[];
+  bottomProducts: ProductSaleRow[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleTop = expanded ? topProducts : topProducts.slice(0, COLLAPSED_ROWS);
+  const hiddenTopCount = Math.max(0, topProducts.length - COLLAPSED_ROWS);
+  const canExpand = hiddenTopCount > 0 || bottomProducts.length > 0;
+  const expandLabelCount =
+    hiddenTopCount + (bottomProducts.length > 0 && expanded === false ? bottomProducts.length : 0);
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="mb-4 font-semibold text-slate-800">
+        En Çok Satan 10 Ürün (30 gün)
+      </h2>
+      <SimpleBarChart
+        items={visibleTop.map((p) => ({
+          label: p.name.length > 28 ? `${p.name.slice(0, 28)}…` : p.name,
+          value: p.quantity,
+          color: 'bg-violet-500',
+        }))}
+        valueFormatter={(v) => `${Math.round(v)} adet`}
+        emptyLabel="Son 30 günde satış kaydı yok."
+      />
+      {canExpand && (
+        <ExpandToggle
+          expanded={expanded}
+          hiddenCount={expandLabelCount || hiddenTopCount || bottomProducts.length}
+          onToggle={() => setExpanded((prev) => !prev)}
+        />
+      )}
+
+      {expanded && bottomProducts.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4">
+          <h3 className="mb-3 text-sm font-semibold text-slate-700">
+            En Az Satan Ürünler (30 gün)
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-100 text-sm">
+              <thead>
+                <tr className="text-left text-xs font-semibold uppercase text-slate-500">
+                  <th className="pb-2 pr-3">Ürün</th>
+                  <th className="pb-2 text-right">Adet</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {bottomProducts.map((row, index) => (
+                  <tr key={`${row.name}-${index}`} className="hover:bg-slate-50/60">
+                    <td className="py-2 pr-3 text-slate-800">{row.name}</td>
+                    <td className="py-2 text-right font-medium text-slate-600">
+                      {Math.round(row.quantity)} adet
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {expanded && topProducts.length > 0 && (
+        <div className="mt-4 overflow-x-auto">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            En çok satanlar — tam liste
+          </h3>
+          <table className="min-w-full divide-y divide-slate-100 text-sm">
+            <tbody className="divide-y divide-slate-50">
+              {topProducts.map((row, index) => (
+                <tr key={`${row.name}-${index}`} className="hover:bg-slate-50/60">
+                  <td className="w-8 py-1.5 text-xs text-slate-400">{index + 1}.</td>
+                  <td className="py-1.5 text-slate-800">{row.name}</td>
+                  <td className="py-1.5 text-right font-medium text-violet-700">
+                    {Math.round(row.quantity)} adet
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function AnalyticsReport() {
   const [data, setData] = useState<AnalyticsData | null>(null);
@@ -41,7 +201,11 @@ export default function AnalyticsReport() {
           const payload = res.data.data;
           setData({
             staffTurnover: ensureArray(payload.staffTurnover),
-            charts: payload.charts,
+            charts: {
+              ...payload.charts,
+              topProducts: ensureArray(payload.charts.topProducts),
+              bottomProducts: ensureArray(payload.charts.bottomProducts),
+            },
             lowStock: ensureArray(payload.lowStock),
           });
         }
@@ -114,52 +278,37 @@ export default function AnalyticsReport() {
       )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 font-semibold text-slate-800">Son 7 Gün Ciro</h2>
-          <SimpleBarChart
-            items={data.charts.dailySales.map((d) => ({
-              label: d.label,
-              value: d.total,
-              color: 'bg-emerald-500',
-            }))}
-            valueFormatter={(v) => formatMoney(v)}
-          />
-        </section>
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 font-semibold text-slate-800">Aylık Ciro (6 Ay)</h2>
-          <SimpleBarChart
-            items={data.charts.monthlySales.map((d) => ({
-              label: d.label,
-              value: d.total,
-              color: 'bg-indigo-500',
-            }))}
-            valueFormatter={(v) => formatMoney(v)}
-          />
-        </section>
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 font-semibold text-slate-800">
-            En Çok Satan 10 Ürün (30 gün)
-          </h2>
-          <SimpleBarChart
-            items={data.charts.topProducts.map((p) => ({
-              label: p.name.length > 18 ? `${p.name.slice(0, 18)}…` : p.name,
-              value: p.quantity,
-              color: 'bg-violet-500',
-            }))}
-            valueFormatter={(v) => `${Math.round(v)} adet`}
-          />
-        </section>
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 font-semibold text-slate-800">Personel Ciroları (Aylık)</h2>
-          <SimpleBarChart
-            items={data.charts.staffComparison.map((s) => ({
-              label: s.name.split(' ')[0],
-              value: s.monthly,
-              color: 'bg-sky-500',
-            }))}
-            valueFormatter={(v) => formatMoney(v)}
-          />
-        </section>
+        <ExpandableBarSection
+          title="Son 7 Gün Ciro"
+          items={data.charts.dailySales.map((d) => ({
+            label: d.label,
+            value: d.total,
+          }))}
+          barColor="bg-emerald-500"
+          valueFormatter={(v) => formatMoney(v)}
+        />
+        <ExpandableBarSection
+          title="Aylık Ciro (6 Ay)"
+          items={data.charts.monthlySales.map((d) => ({
+            label: d.label,
+            value: d.total,
+          }))}
+          barColor="bg-indigo-500"
+          valueFormatter={(v) => formatMoney(v)}
+        />
+        <ProductSalesSection
+          topProducts={data.charts.topProducts}
+          bottomProducts={data.charts.bottomProducts}
+        />
+        <ExpandableBarSection
+          title="Personel Ciroları (Aylık)"
+          items={data.charts.staffComparison.map((s) => ({
+            label: s.name.split(' ')[0],
+            value: s.monthly,
+          }))}
+          barColor="bg-sky-500"
+          valueFormatter={(v) => formatMoney(v)}
+        />
       </div>
 
       {data.staffTurnover.length > 0 && (

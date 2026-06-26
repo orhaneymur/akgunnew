@@ -116,13 +116,18 @@ export function roundPrice(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export function formatMoney(value: number, currency = 'TRY') {
-  return new Intl.NumberFormat('tr-TR', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(roundPrice(value));
+export const APP_CURRENCY = 'USD';
+
+/** Tüm tutarlar USD endeksli — fatura gösterimi */
+export function invoiceAmountUsd(invoice: {
+  totalAmountUsd?: number | null;
+  totalAmountTl: number;
+  exchangeRate?: number | null;
+}): number {
+  const usd = invoice.totalAmountUsd;
+  if (usd != null && usd > 0) return roundPrice(usd);
+  const rate = invoice.exchangeRate && invoice.exchangeRate > 0 ? invoice.exchangeRate : 1;
+  return roundPrice(invoice.totalAmountTl / rate);
 }
 
 /** USD fiyat — tr-TR: 18,50 $ */
@@ -131,6 +136,10 @@ export function formatUsd(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(roundPrice(value))} $`;
+}
+
+export function formatMoney(value: number, _currency?: string) {
+  return formatUsd(value);
 }
 
 export function formatDate(value: string) {

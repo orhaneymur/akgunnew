@@ -387,7 +387,7 @@ export default function CustomerBalances() {
             <div className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Kredi Limiti (₺)
+                  Kredi Limiti ($)
                 </label>
                 <input
                   type="number"
@@ -401,7 +401,7 @@ export default function CustomerBalances() {
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Bakiye (₺)
+                  Bakiye ($)
                 </label>
                 <input
                   type="number"
