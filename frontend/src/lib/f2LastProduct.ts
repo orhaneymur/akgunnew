@@ -44,3 +44,47 @@ export function getLastF2ProductId(
   const id = readStore()[storageKey(context, partyId)];
   return typeof id === 'number' && id > 0 ? id : null;
 }
+
+const SEARCH_STORAGE_KEY = 'akgun-f2-last-search';
+
+function searchStorageKey(context: F2ProductContext, partyId?: number | null): string {
+  return `${context}:${partyId ?? 0}`;
+}
+
+function readSearchStore(): Record<string, string> {
+  try {
+    const raw = sessionStorage.getItem(SEARCH_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function writeSearchStore(store: Record<string, string>) {
+  try {
+    sessionStorage.setItem(SEARCH_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+export function recordF2SearchQuery(
+  context: F2ProductContext,
+  partyId: number | null | undefined,
+  query: string
+) {
+  const store = readSearchStore();
+  store[searchStorageKey(context, partyId)] = query;
+  writeSearchStore(store);
+}
+
+export function getLastF2SearchQuery(
+  context: F2ProductContext,
+  partyId?: number | null
+): string {
+  const value = readSearchStore()[searchStorageKey(context, partyId)];
+  return typeof value === 'string' ? value : '';
+}

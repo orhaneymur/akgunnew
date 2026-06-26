@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { API_BASE, ensureArray } from '../lib/api';
-import { getLastF2ProductId } from '../lib/f2LastProduct';
+import { getLastF2ProductId, getLastF2SearchQuery, recordF2SearchQuery } from '../lib/f2LastProduct';
 
 export type F2ProductContext = 'sales' | 'purchase' | 'return';
 
@@ -53,8 +53,7 @@ export function useF2ProductSearch(options: {
   const listRef = useRef<HTMLDivElement>(null);
   const lastF2TriggerRef = useRef(0);
 
-  const resetSearch = useCallback(() => {
-    setSearchQuery('');
+  const resetListState = useCallback(() => {
     setResults([]);
     setFocusedIndex(-1);
     setPage(1);
@@ -65,15 +64,28 @@ export function useF2ProductSearch(options: {
   useEffect(() => {
     if (f2Trigger > lastF2TriggerRef.current) {
       lastF2TriggerRef.current = f2Trigger;
-      resetSearch();
+      const lastQuery = getLastF2SearchQuery(context, partyId);
+      setSearchQuery(lastQuery);
+      resetListState();
     }
-  }, [f2Trigger, resetSearch]);
+  }, [f2Trigger, context, partyId, resetListState]);
 
   useEffect(() => {
     if (!open) {
-      resetSearch();
+      resetListState();
+      return;
     }
-  }, [open, resetSearch]);
+    const lastQuery = getLastF2SearchQuery(context, partyId);
+    if (lastQuery) {
+      setSearchQuery((prev) => (prev.trim() === lastQuery ? prev : lastQuery));
+    }
+  }, [open, context, partyId, resetListState]);
+
+  useEffect(() => {
+    if (open) {
+      recordF2SearchQuery(context, partyId, searchQuery);
+    }
+  }, [open, searchQuery, context, partyId]);
 
   const fetchPage = useCallback(
     async (pageNumber: number, query: string, append: boolean) => {

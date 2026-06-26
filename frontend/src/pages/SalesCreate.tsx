@@ -94,6 +94,15 @@ function calcLineTotalUsd(
   return Math.round(base * (1 - item.discountPercent / 100) * 100) / 100;
 }
 
+function unitNetUsd(item: Pick<CartItem, 'unitPriceUsd' | 'discountPercent'>) {
+  return roundPrice(item.unitPriceUsd * (1 - item.discountPercent / 100));
+}
+
+function isSaleBelowCost(item: Pick<CartItem, 'unitPriceUsd' | 'discountPercent' | 'costUsd'>) {
+  if (item.costUsd <= 0) return false;
+  return unitNetUsd(item) < item.costUsd;
+}
+
 const EXCHANGE_RATE = 1;
 
 function productCostUsd(product: Product) {
@@ -1168,8 +1177,16 @@ export default function SalesCreate({
               <tbody className="divide-y divide-slate-100">
                 {cart.map((item) => {
                   const lineTotal = calcLineTotalUsd(item);
+                  const belowCost = isSaleBelowCost(item);
                   return (
-                    <tr key={item.rowId} className="hover:bg-slate-50/80 print:hover:bg-transparent">
+                    <tr
+                      key={item.rowId}
+                      className={
+                        belowCost
+                          ? 'bg-red-50 ring-1 ring-inset ring-red-200 print:bg-transparent print:ring-0'
+                          : 'hover:bg-slate-50/80 print:hover:bg-transparent'
+                      }
+                    >
                       <td className="px-3 py-2 font-mono text-[11px] text-slate-600 sm:text-xs align-top print:hidden">
                         {item.product.sku}
                       </td>
@@ -1239,7 +1256,11 @@ export default function SalesCreate({
                           onKeyDown={(e) =>
                             onCartFieldKeyDown(e, item.rowId, 'unitPriceUsd')
                           }
-                          className="w-20 text-right rounded border-slate-300 text-sm px-1.5 py-1 border focus:border-indigo-500 focus:ring-indigo-500 tabular-nums print:w-auto print:min-w-0 print:p-0 print:text-[9px]"
+                          className={`w-20 text-right rounded text-sm px-1.5 py-1 border tabular-nums print:w-auto print:min-w-0 print:p-0 print:text-[9px] ${
+                            belowCost
+                              ? 'border-red-400 bg-red-50 text-red-800 focus:border-red-500 focus:ring-red-500'
+                              : 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500'
+                          }`}
                         />
                       </td>
                       <td className="px-3 py-2 text-right font-bold text-slate-900 tabular-nums">
